@@ -799,14 +799,14 @@
                 <div class="fila">
                     <div>
                         <label class="etiqueta" for="tr-date">Fecha del traslado</label>
-                        <input type="date" id="tr-date" class="campo">
+                        <input type="date" id="tr-date" class="campo" oninput="renderTransfer()" onchange="renderTransfer()">
                     </div>
                     <div>
                         <label class="etiqueta" for="tr-note">Nota <span class="suave">(opcional)</span></label>
                         <input type="text" id="tr-note" class="campo" maxlength="200" placeholder="Ej. Para el proyecto Hospital">
                     </div>
                 </div>
-                <p class="ayuda" style="margin:-6px 0 0">La fecha de entrega se registra después, desde la carpeta del operario.</p>
+                <p class="aviso" id="tr-mode" style="margin:-4px 0 0"></p>
                 <div>
                     <label class="etiqueta" for="tr-search">Herramientas del inventario</label>
                     <input type="text" id="tr-search" class="campo" placeholder="Buscar por código, nombre, marca o modelo..." oninput="renderTransfer()">
@@ -1721,8 +1721,17 @@
         }
         function onTransferOrigin() { cart = []; renderTransfer(); }
 
+        // Fecha anterior a hoy = registro histórico: no toca el inventario y se puede poner cualquier cantidad
+        const isHistoric = () => { const d = document.getElementById('tr-date').value; return !!d && d < todayStr(); };
+
         function renderTransfer() {
             const origin = document.getElementById('tr-origin').value;
+            const hist = isHistoric();
+            const modeBox = document.getElementById('tr-mode');
+            modeBox.className = 'aviso' + (hist ? ' hist' : '');
+            modeBox.textContent = hist
+                ? 'Fecha anterior a hoy: es un registro histórico. El inventario no cambia y puedes poner la cantidad que quieras.'
+                : 'Fecha de hoy o futura: las herramientas se rebajan del inventario. La fecha de entrega se registra después.';
             const list = document.getElementById('tr-list');
             document.getElementById('tr-search').disabled = !origin;
             if (!origin) {
@@ -1733,14 +1742,14 @@
                 list.innerHTML = avail.map(t => {
                     const enCarrito = (cart.find(c => c.toolId === t.id) || {}).qty || 0;
                     const libre = t.quantity - enCarrito;
-                    const agotada = libre < 1;
+                    const agotada = !hist && libre < 1;
                     return `<div class="fila-picker ${agotada ? 'agotada' : ''}">
                         <img class="foto" src="${esc(t.photo || DEFAULT_IMAGE)}" alt="${esc(t.name)}" onclick="openImageModal(${t.id})" onerror="this.onerror=null;this.src=DEFAULT_IMAGE">
                         <div><span class="codigo">${esc(t.code)}</span><br><strong>${esc(t.name)}</strong>
                             ${brandModelLine(t)}
                             ${t.description ? `<span class="desc" title="${esc(t.description)}">${esc(t.description)}</span>` : ''}
-                            <span class="sub">Disponibles: ${libre}${enCarrito ? ` (${enCarrito} ya en el traslado)` : ''}</span></div>
-                        <input type="number" class="campo" id="tr-q-${t.id}" min="1" max="${Math.max(libre, 1)}" value="1" ${agotada ? 'disabled' : ''} aria-label="Cantidad">
+                            <span class="sub">${hist ? `En inventario: ${t.quantity}` : `Disponibles: ${libre}`}${enCarrito ? ` (${enCarrito} ya en el traslado)` : ''}</span></div>
+                        <input type="number" class="campo" id="tr-q-${t.id}" min="1" ${hist ? '' : `max="${Math.max(libre, 1)}"`} value="1" ${agotada ? 'disabled' : ''} aria-label="Cantidad">
                         <button type="button" class="btn btn-primario" onclick="addToCart(${t.id})" ${agotada ? 'disabled' : ''}>${agotada ? 'Agotada' : 'Agregar'}</button>
                     </div>`;
                 }).join('') || '<p class="conteo">No hay herramientas con esa búsqueda en esta bodega.</p>';
@@ -1759,7 +1768,7 @@
             const qty = parseInt(document.getElementById(`tr-q-${toolId}`).value, 10);
             const ya = (cart.find(c => c.toolId === toolId) || {}).qty || 0;
             if (!(qty >= 1)) { await uiAlert('Escribe una cantidad de 1 en adelante.'); return; }
-            if (qty + ya > t.quantity) { await uiAlert(`Solo hay ${t.quantity - ya} disponibles de ${t.name}.`); return; }
+            if (!isHistoric() && qty + ya > t.quantity) { await uiAlert(`Solo hay ${t.quantity - ya} disponibles de ${t.name}.`); return; }
             const item = cart.find(c => c.toolId === toolId);
             if (item) item.qty += qty; else cart.push({ toolId, qty });
             renderTransfer();
@@ -1782,15 +1791,16 @@
             }
             if (!date) { await uiAlert('Indica la fecha del traslado.'); return; }
             if (!cart.length) { await uiAlert('Agrega al menos una herramienta al traslado.'); return; }
+            const hist = date < todayStr();
             for (const c of cart) {
                 const t = tools.find(x => x.id === c.toolId);
-                if (!t || c.qty > t.quantity) { await uiAlert(`Ya no hay suficientes unidades de ${t ? t.name : 'una herramienta'}. Revisa el traslado.`); renderTransfer(); return; }
+                if (!t || (!hist && c.qty > t.quantity)) { await uiAlert(`Ya no hay suficientes unidades de ${t ? t.name : 'una herramienta'}. Revisa el traslado.`); renderTransfer(); return; }
             }
             cart.forEach(c => {
                 const t = tools.find(x => x.id === c.toolId);
-                t.quantity -= c.qty;
+                if (!hist) t.quantity -= c.qty;
                 records.push({ id: uid('r'), folderId: opId, toolId: t.id, code: t.code, name: t.name, qty: c.qty, note, origin,
-                               date, delivery: '', deducted: true, returned: false, at: new Date().toISOString() });
+                               date, delivery: '', deducted: !hist, returned: false, at: new Date().toISOString() });
             });
             cart = [];
             closeTransfer();
