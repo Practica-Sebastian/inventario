@@ -418,6 +418,13 @@
         .sacudir { animation: sacudir 0.35s; }
         @keyframes sacudir { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
         .campo-fijo { display: flex; align-items: center; font-weight: 700; color: var(--oro); background: transparent; }
+        .op-grupo { display: grid; gap: 8px; }
+        .op-grupo .flecha-grupo { transition: transform 0.2s; }
+        .op-grupo.abierto .flecha-grupo { transform: translateY(-50%) rotate(180deg); }
+        .op-grupo.abierto > .op-item { border-color: var(--azul); }
+        .op-sub { display: grid; gap: 8px; padding-left: 26px; border-left: 2px solid var(--borde-fuerte); margin-left: 18px; }
+        .op-hija { padding-top: 10px; padding-bottom: 10px; }
+        .op-hija .t { font-size: 14px; }
     </style>
 </head>
 <body>
@@ -882,6 +889,7 @@
             'fa-warehouse': '<path d="M3 21V8l9-5 9 5v13M7 21v-8h10v8M7 17h10"/>',
             'fa-users': '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0M16 4.5a3.5 3.5 0 010 7M21.5 20a6.5 6.5 0 00-4-6"/>',
             'fa-lock': '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/>',
+            'fa-chevron-down': '<path d="M6 9l6 6 6-6"/>',
             'fa-layer-group': '<path d="M12 2l10 5-10 5L2 7zM2 12l10 5 10-5M2 17l10 5 10-5"/>'
         };
         function hydrateIcons(root = document) {
@@ -1495,30 +1503,40 @@
             return parts.length ? `<span class="marca-modelo">${parts.join(' · ')}</span>` : '';
         };
 
-        // Las carpetas de años, meses y fechas se eliminan: solo quedan las carpetas con nombre,
-        // que pasan a ser los operarios (las de igual nombre se unen). Cada registro conserva su fecha.
+        // Las carpetas de años, meses y fechas se eliminan: cada carpeta con nombre pasa a ser una carpeta de operario
+        // (sin unir las que se llaman igual). Cada registro conserva su fecha.
+        function projectToOperator(p, day) {
+            return { id: p.id, type: 'operator', name: (p.name || '').trim().toUpperCase(), description: p.description || '',
+                     transport: p.transport || '', date: (day && day.date) || p.date || '' };
+        }
         function migrateFolders() {
             if (!folders.some(f => f.type !== 'operator')) return false;
             const byId = new Map(folders.map(f => [f.id, f]));
-            const byName = new Map();
-            folders.filter(f => f.type === 'operator').forEach(o => byName.set(o.name.trim().toUpperCase(), o));
-            const named = folders.filter(f => f.type === 'project' || (f.type === 'day' && f.name !== undefined));
-            named.forEach(p => {
+            const out = folders.filter(f => f.type === 'operator');
+            folders.filter(f => f.type === 'project' || (f.type === 'day' && f.name !== undefined)).forEach(p => {
+                if (!(p.name || '').trim()) return;
                 const day = p.type === 'day' ? p : byId.get(p.parentId);
-                const key = (p.name || '').trim().toUpperCase();
-                if (!key) return;
-                let op = byName.get(key);
-                if (!op) {
-                    op = { id: p.id, type: 'operator', name: (p.name || '').trim().toUpperCase(), description: p.description || '', transport: p.transport || '' };
-                    byName.set(key, op);
-                } else {
-                    if (!op.description && p.description) op.description = p.description;
-                    if (!op.transport && p.transport) op.transport = p.transport;
-                }
-                records.forEach(r => { if (r.folderId === p.id) { r.folderId = op.id; if (!r.date && day && day.date) r.date = day.date; } });
+                out.push(projectToOperator(p, day));
+                records.forEach(r => { if (r.folderId === p.id && !r.date && day && day.date) r.date = day.date; });
             });
-            folders = [...byName.values()];
+            folders = out;
             return true;
+        }
+        // Una versión anterior unió las carpetas con el mismo nombre: se vuelven a separar como estaban
+        function unmergeFolders() {
+            const seedById = new Map(SEED_FOLDERS.map(f => [f.id, f]));
+            const seedRec = new Map(SEED_RECORDS.map(r => [r.id, r.folderId]));
+            const names = new Set(folders.map(f => f.name));
+            const existing = new Set(folders.map(f => f.id));
+            SEED_FOLDERS.filter(f => f.type === 'project').forEach(p => {
+                const op = projectToOperator(p, seedById.get(p.parentId));
+                if (existing.has(p.id)) {
+                    const cur = folders.find(f => f.id === p.id);
+                    if (!cur.date) cur.date = op.date;
+                    if (cur.description !== op.description && cur.name === op.name) cur.description = op.description;
+                } else if (names.has(op.name)) { folders.push(op); existing.add(p.id); }
+            });
+            records.forEach(r => { const f = seedRec.get(r.id); if (f && existing.has(f)) r.folderId = f; });
         }
 
         function saveFolders() {
@@ -1584,6 +1602,7 @@
             html += `<nav class="migas"><button onclick="backToOperators()">← Operarios</button><span class="sep">›</span><span class="actual">${esc(o.name)}</span></nav>
                 <div class="cabecera-dia"><div>
                     <h3><i class="fa-solid fa-folder-open" style="color:var(--oro)"></i> ${esc(o.name)}</h3>
+                    ${o.date ? `<p>${fmtDate(o.date)}</p>` : ''}
                     ${o.description ? `<p>${esc(o.description)}</p>` : ''}
                     ${o.transport ? `<p><i class="fa-solid fa-truck"></i> <strong style="color:var(--texto)">Transportado por:</strong> ${esc(o.transport)}</p>` : ''}
                     <span class="modo modo-stock">${enPoder} unidades en su poder</span>
@@ -1625,21 +1644,55 @@
             box.innerHTML = html;
         }
 
+        const openGroups = new Set();
+        function toggleGroup(name) { openGroups.has(name) ? openGroups.delete(name) : openGroups.add(name); renderOpList(); }
+        const opStats = o => {
+            const recs = records.filter(r => r.folderId === o.id);
+            return { n: recs.length, poder: recs.filter(r => r.deducted && !r.returned).reduce((s, r) => s + r.qty, 0) };
+        };
+        const pencilOp = id => `<span class="editar" role="button" tabindex="0" title="Editar o eliminar" onclick="event.stopPropagation(); openOpModal('${id}')"><i class="fa-solid fa-pen"></i></span>`;
+
         function renderOpList() {
             const q = norm(document.getElementById('op-search').value);
-            const list = operators().filter(o => !q || norm(o.name).includes(q));
-            document.getElementById('op-lista').innerHTML = list.map(o => {
-                const recs = records.filter(r => r.folderId === o.id);
-                const enPoder = recs.filter(r => r.deducted && !r.returned).reduce((s, r) => s + r.qty, 0);
-                return `<button class="op-item" onclick="openOperator('${o.id}')">
-                    <i class="fa-solid fa-folder"></i>
-                    <span class="op-texto"><span class="t">${esc(o.name)}</span>
-                        ${o.description ? `<span class="d">${esc(o.description)}</span>` : ''}
-                        ${o.transport ? `<span class="s"><i class="fa-solid fa-truck"></i> Transportado por: ${esc(o.transport)}</span>` : ''}</span>
-                    <span class="op-cifras"><b>${recs.length}</b> traslados${enPoder ? `<br><span class="c-oro">${enPoder} en su poder</span>` : ''}</span>
-                    <span class="editar" role="button" tabindex="0" title="Editar o eliminar" onclick="event.stopPropagation(); openOpModal('${o.id}')"><i class="fa-solid fa-pen"></i></span>
-                </button>`;
-            }).join('') || `<p class="conteo">${operators().length ? 'Ningún operario coincide con la búsqueda.' : 'Todavía no hay operarios. Crea uno o haz un traslado.'}</p>`;
+            const groups = new Map();
+            operators().filter(o => !q || norm(o.name + ' ' + (o.description || '')).includes(q))
+                .forEach(o => { if (!groups.has(o.name)) groups.set(o.name, []); groups.get(o.name).push(o); });
+            const html = [...groups].map(([name, list]) => {
+                list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+                if (list.length === 1) {
+                    const o = list[0], st = opStats(o);
+                    return `<button class="op-item" onclick="openOperator('${o.id}')">
+                        <i class="fa-solid fa-folder"></i>
+                        <span class="op-texto"><span class="t">${esc(o.name)}</span>
+                            ${o.description ? `<span class="d">${esc(o.description)}</span>` : ''}
+                            ${o.transport ? `<span class="s"><i class="fa-solid fa-truck"></i> Transportado por: ${esc(o.transport)}</span>` : ''}</span>
+                        <span class="op-cifras"><b>${st.n}</b> traslados${st.poder ? `<br><span class="c-oro">${st.poder} en su poder</span>` : ''}</span>
+                        ${pencilOp(o.id)}
+                    </button>`;
+                }
+                const abierto = openGroups.has(name) || !!q;
+                const tot = list.reduce((s, o) => s + opStats(o).n, 0);
+                return `<div class="op-grupo ${abierto ? 'abierto' : ''}">
+                    <button class="op-item" data-n="${esc(name)}" onclick="toggleGroup(this.dataset.n)" aria-expanded="${abierto}">
+                        <i class="fa-solid fa-folder${abierto ? '-open' : ''}"></i>
+                        <span class="op-texto"><span class="t">${esc(name)}</span><span class="d">${list.length} carpetas · toca para ${abierto ? 'ocultar' : 'ver'} sus descripciones</span></span>
+                        <span class="op-cifras"><b>${tot}</b> traslados</span>
+                        <span class="editar flecha-grupo"><i class="fa-solid fa-chevron-down"></i></span>
+                    </button>
+                    ${abierto ? `<div class="op-sub">${list.map(o => {
+                        const st = opStats(o);
+                        return `<button class="op-item op-hija" onclick="openOperator('${o.id}')">
+                            <i class="fa-solid fa-folder"></i>
+                            <span class="op-texto"><span class="t">${o.description ? esc(o.description) : '<span class="suave">Sin descripción</span>'}</span>
+                                <span class="d">${o.date ? fmtDate(o.date) : ''}${o.date && o.transport ? ' · ' : ''}${o.transport ? `Transportado por: ${esc(o.transport)}` : ''}</span></span>
+                            <span class="op-cifras"><b>${st.n}</b> traslados${st.poder ? `<br><span class="c-oro">${st.poder} en su poder</span>` : ''}</span>
+                            ${pencilOp(o.id)}
+                        </button>`;
+                    }).join('')}</div>` : ''}
+                </div>`;
+            }).join('');
+            document.getElementById('op-lista').innerHTML = html ||
+                `<p class="conteo">${operators().length ? 'Ningún operario coincide con la búsqueda.' : 'Todavía no hay operarios. Crea uno o haz un traslado.'}</p>`;
         }
 
         // ----- Crear / editar operario -----
@@ -1663,7 +1716,6 @@
             const description = document.getElementById('op-description').value.trim().toUpperCase();
             const transport = document.getElementById('op-transport').value.trim().toUpperCase();
             if (!name) return;
-            if (operators().some(o => o.name === name && o.id !== id)) { await uiAlert(`Ya existe el operario ${name}.`); return; }
             if (id) Object.assign(getF(id), { name, description, transport });
             else folders.push({ id: uid('o'), type: 'operator', name, description, transport });
             saveFolders();
@@ -1702,7 +1754,7 @@
             document.getElementById('tr-origin').value = '';
             const sel = document.getElementById('tr-op');
             sel.innerHTML = '<option value="" disabled selected>Selecciona el operario</option>' +
-                operators().map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('') +
+                operators().map(o => `<option value="${o.id}">${esc(o.name)}${o.description ? ' — ' + esc(o.description.slice(0, 50)) : ''}${o.date ? ' (' + fmtDate(o.date) + ')' : ''}</option>`).join('') +
                 '<option value="__new">+ Añadir operario nuevo</option>';
             sel.value = opId && getF(opId) ? opId : '';
             document.getElementById('tr-new-op').value = '';
@@ -1785,9 +1837,8 @@
             if (opId === '__new') {
                 const name = document.getElementById('tr-new-op').value.trim().toUpperCase();
                 if (!name) { await uiAlert('Escribe el nombre del operario nuevo.'); return; }
-                const ya = operators().find(o => o.name === name);
-                if (ya) opId = ya.id;
-                else { opId = uid('o'); folders.push({ id: opId, type: 'operator', name, description: '', transport: '' }); }
+                opId = uid('o');
+                folders.push({ id: opId, type: 'operator', name, description: '', transport: '', date: document.getElementById('tr-date').value || '' });
             }
             if (!date) { await uiAlert('Indica la fecha del traslado.'); return; }
             if (!cart.length) { await uiAlert('Agrega al menos una herramienta al traslado.'); return; }
@@ -2526,6 +2577,10 @@
                 records = SEED_RECORDS.map(r => ({ ...r }));
             }
             migrateFolders();
+            try {
+                if (!fresh && localStorage.getItem('bodega_separar_v1') !== '1') unmergeFolders();
+                localStorage.setItem('bodega_separar_v1', '1');
+            } catch (e) {}
             // Una sola vez: las herramientas sin empresa pasan a "Equipos MARC"
             try {
                 if (localStorage.getItem('bodega_empresa_v1') !== '1') {
