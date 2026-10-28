@@ -755,6 +755,10 @@
                     <input type="text" id="op-name" class="campo" required maxlength="60" placeholder="Ej. Carlos Mora">
                 </div>
                 <div>
+                    <label class="etiqueta" for="op-date">Fecha</label>
+                    <input type="date" id="op-date" class="campo" required>
+                </div>
+                <div>
                     <label class="etiqueta" for="op-description">Descripción <span class="suave">(opcional)</span></label>
                     <textarea id="op-description" class="campo" rows="3" placeholder="Ej. Cuadrilla de ductos, proyecto Hospital"></textarea>
                 </div>
@@ -1664,6 +1668,7 @@
                     return `<button class="op-item" onclick="openOperator('${o.id}')">
                         <i class="fa-solid fa-folder"></i>
                         <span class="op-texto"><span class="t">${esc(o.name)}</span>
+                            ${o.date ? `<span class="s">${fmtDate(o.date)}</span>` : ''}
                             ${o.description ? `<span class="d">${esc(o.description)}</span>` : ''}
                             ${o.transport ? `<span class="s"><i class="fa-solid fa-truck"></i> Transportado por: ${esc(o.transport)}</span>` : ''}</span>
                         <span class="op-cifras"><b>${st.n}</b> traslados${st.poder ? `<br><span class="c-oro">${st.poder} en su poder</span>` : ''}</span>
@@ -1702,6 +1707,7 @@
             document.getElementById('op-name').value = o ? o.name : '';
             document.getElementById('op-description').value = o ? (o.description || '') : '';
             document.getElementById('op-transport').value = o ? (o.transport || '') : '';
+            document.getElementById('op-date').value = o ? (o.date || '') : todayStr();
             document.getElementById('op-title').textContent = o ? 'Editar operario' : 'Nuevo operario';
             document.getElementById('btn-delete-op').hidden = !o;
             showModal('op-modal');
@@ -1715,9 +1721,10 @@
             const name = document.getElementById('op-name').value.trim().toUpperCase();
             const description = document.getElementById('op-description').value.trim().toUpperCase();
             const transport = document.getElementById('op-transport').value.trim().toUpperCase();
+            const date = document.getElementById('op-date').value;
             if (!name) return;
-            if (id) Object.assign(getF(id), { name, description, transport });
-            else folders.push({ id: uid('o'), type: 'operator', name, description, transport });
+            if (id) Object.assign(getF(id), { name, description, transport, date });
+            else folders.push({ id: uid('o'), type: 'operator', name, description, transport, date });
             saveFolders();
             closeOpModal();
             renderRecords();
