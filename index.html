@@ -756,7 +756,8 @@
                 </div>
                 <div>
                     <label class="etiqueta" for="op-date">Fecha</label>
-                    <input type="date" id="op-date" class="campo" required>
+                    <input type="date" id="op-date" class="campo" required oninput="updateOpMode()" onchange="updateOpMode()">
+                    <p class="aviso" id="op-mode" style="margin:10px 0 0"></p>
                 </div>
                 <div>
                     <label class="etiqueta" for="op-description">Descripción <span class="suave">(opcional)</span></label>
@@ -808,7 +809,7 @@
                     <input type="text" id="tr-new-op" class="campo" maxlength="60" placeholder="Ej. Carlos Mora">
                 </div>
                 <div class="fila">
-                    <div>
+                    <div id="tr-date-box">
                         <label class="etiqueta" for="tr-date">Fecha del traslado</label>
                         <input type="date" id="tr-date" class="campo" oninput="renderTransfer()" onchange="renderTransfer()">
                     </div>
@@ -1708,12 +1709,27 @@
             document.getElementById('op-description').value = o ? (o.description || '') : '';
             document.getElementById('op-transport').value = o ? (o.transport || '') : '';
             document.getElementById('op-date').value = o ? (o.date || '') : todayStr();
+            updateOpMode();
             document.getElementById('op-title').textContent = o ? 'Editar operario' : 'Nuevo operario';
             document.getElementById('btn-delete-op').hidden = !o;
             showModal('op-modal');
             document.getElementById('op-name').focus();
         }
         function closeOpModal() { hideModal('op-modal'); }
+
+        // Según la fecha de la carpeta se indica si las herramientas que se agreguen rebajarán el inventario
+        const modeText = (date, hist) => hist
+            ? `Fecha anterior a hoy: es un registro histórico. El inventario NO se actualiza y se puede registrar la cantidad que se quiera.`
+            : `Fecha de hoy o futura: el inventario SÍ se actualiza. Las herramientas que se agreguen se rebajan de la bodega.`;
+        function updateOpMode() {
+            const d = document.getElementById('op-date').value;
+            const box = document.getElementById('op-mode');
+            box.hidden = !d;
+            if (!d) return;
+            const hist = d < todayStr();
+            box.className = 'aviso' + (hist ? ' hist' : '');
+            box.textContent = modeText(d, hist);
+        }
 
         async function saveOperator(e) {
             e.preventDefault();
@@ -1766,7 +1782,8 @@
             sel.value = opId && getF(opId) ? opId : '';
             document.getElementById('tr-new-op').value = '';
             document.getElementById('tr-new-box').hidden = true;
-            document.getElementById('tr-date').value = todayStr();
+            document.getElementById('tr-date').value = lock ? (getF(opId).date || todayStr()) : todayStr();
+            document.getElementById('tr-date-box').hidden = lock;
             document.getElementById('tr-note').value = '';
             document.getElementById('tr-search').value = '';
             renderTransfer();
@@ -1788,9 +1805,10 @@
             const hist = isHistoric();
             const modeBox = document.getElementById('tr-mode');
             modeBox.className = 'aviso' + (hist ? ' hist' : '');
-            modeBox.textContent = hist
+            const fixedDate = !document.getElementById('tr-date-box').hidden ? '' : `Carpeta del ${fmtDate(document.getElementById('tr-date').value)}. `;
+            modeBox.textContent = fixedDate + (hist
                 ? 'Fecha anterior a hoy: es un registro histórico. El inventario no cambia y puedes poner la cantidad que quieras.'
-                : 'Fecha de hoy o futura: las herramientas se rebajan del inventario. La fecha de entrega se registra después.';
+                : 'Fecha de hoy o futura: las herramientas se rebajan del inventario. La fecha de entrega se registra después.');
             const list = document.getElementById('tr-list');
             document.getElementById('tr-search').disabled = !origin;
             if (!origin) {
