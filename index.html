@@ -417,6 +417,7 @@
         .pin-error { color: var(--rojo); font-size: 13px; }
         .sacudir { animation: sacudir 0.35s; }
         @keyframes sacudir { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+        .campo-fijo { display: flex; align-items: center; font-weight: 700; color: var(--oro); background: transparent; }
     </style>
 </head>
 <body>
@@ -782,9 +783,13 @@
                             <option value="Instalaciones">Bodega Instalaciones</option>
                         </select>
                     </div>
-                    <div>
+                    <div id="tr-op-box">
                         <label class="etiqueta" for="tr-op">¿A qué operario se traslada?</label>
                         <select id="tr-op" class="campo" onchange="onTransferOp()"></select>
+                    </div>
+                    <div id="tr-op-fixed" hidden>
+                        <span class="etiqueta">Operario</span>
+                        <div class="campo campo-fijo" id="tr-op-name"></div>
                     </div>
                 </div>
                 <div id="tr-new-box" hidden>
@@ -813,7 +818,7 @@
                 </div>
                 <div class="pie-form"><div class="derecha">
                     <button type="button" class="btn" onclick="closeTransfer()">Cancelar</button>
-                    <button type="button" class="btn btn-primario" onclick="confirmTransfer()"><i class="fa-solid fa-circle-check"></i> Confirmar traslado</button>
+                    <button type="button" class="btn btn-primario" id="tr-confirm" onclick="confirmTransfer()"><i class="fa-solid fa-circle-check"></i> Confirmar traslado</button>
                 </div></div>
             </div>
         </div>
@@ -1584,11 +1589,11 @@
                     <span class="modo modo-stock">${enPoder} unidades en su poder</span>
                 </div>
                 <div class="botonera">
-                    <button class="btn btn-primario" onclick="openTransfer('${o.id}')"><i class="fa-solid fa-truck"></i> Traslado Equipo</button>
+                    <button class="btn btn-primario" onclick="openTransfer('${o.id}', true)"><i class="fa-solid fa-plus"></i> Agregar herramientas</button>
                     <button class="btn" onclick="openOpModal('${o.id}')"><i class="fa-solid fa-pen"></i> Editar</button>
                 </div></div>`;
             if (!recs.length) {
-                html += '<div class="vacio"><i class="fa-solid fa-toolbox"></i>Este operario todavía no tiene traslados. Usa "Traslado Equipo".</div>';
+                html += '<div class="vacio"><i class="fa-solid fa-toolbox"></i>Este operario todavía no tiene herramientas. Usa "Agregar herramientas".</div>';
             } else {
                 html += `<div class="tabla-envoltura"><table style="min-width:1040px"><thead><tr>
                     <th>Foto</th><th>Código</th><th>Activo / Equipo</th><th>Marca / Modelo</th><th style="text-align:center">Cantidad</th>
@@ -1684,8 +1689,16 @@
 
         // ----- Traslado de equipo -----
         let cart = []; // [{toolId, qty}]
-        function openTransfer(opId) {
+        function openTransfer(opId, fixed) {
             cart = [];
+            const lock = !!(fixed && opId && getF(opId));
+            document.getElementById('tr-op-box').hidden = lock;
+            document.getElementById('tr-op-fixed').hidden = !lock;
+            document.getElementById('tr-op-name').textContent = lock ? getF(opId).name : '';
+            document.getElementById('tr-title').innerHTML = lock
+                ? '<i class="fa-solid fa-plus" style="color:var(--oro)"></i> Agregar herramientas'
+                : '<i class="fa-solid fa-truck" style="color:var(--oro)"></i> Traslado de equipo';
+            document.getElementById('tr-confirm').innerHTML = `<i class="fa-solid fa-circle-check"></i> ${lock ? 'Agregar al operario' : 'Confirmar traslado'}`;
             document.getElementById('tr-origin').value = '';
             const sel = document.getElementById('tr-op');
             sel.innerHTML = '<option value="" disabled selected>Selecciona el operario</option>' +
