@@ -435,6 +435,9 @@
         .dup-item .btn { height: 32px; font-size: 12.5px; padding: 0 10px; flex-shrink: 0; }
         .eleccion { display: grid; gap: 8px; }
         .eleccion .btn { width: 100%; justify-content: flex-start; }
+        .op-nueva { border-style: dashed; color: var(--azul); }
+        .op-nueva > i { color: var(--azul) !important; }
+        input.campo-fijo[readonly] { color: var(--oro); font-weight: 700; border-style: dashed; }
     </style>
 </head>
 <body>
@@ -764,6 +767,7 @@
                 <div>
                     <label class="etiqueta" for="op-name">Nombre del operario</label>
                     <input type="text" id="op-name" class="campo" required maxlength="60" placeholder="Ej. Carlos Mora">
+                    <p class="ayuda" id="op-name-hint" hidden>Se agrega automáticamente a la carpeta de este operario.</p>
                 </div>
                 <div>
                     <label class="etiqueta" for="op-date">Fecha</label>
@@ -771,8 +775,8 @@
                     <p class="aviso" id="op-mode" style="margin:10px 0 0"></p>
                 </div>
                 <div>
-                    <label class="etiqueta" for="op-description">Descripción <span class="suave">(opcional)</span></label>
-                    <textarea id="op-description" class="campo" rows="3" placeholder="Ej. Cuadrilla de ductos, proyecto Hospital"></textarea>
+                    <label class="etiqueta" for="op-description">Nombre de carpeta</label>
+                    <input type="text" id="op-description" class="campo" required maxlength="80" placeholder="Ej. Proyecto Hospital, Cuadrilla de ductos">
                 </div>
                 <div>
                     <label class="etiqueta" for="op-transport">Transportado por: <span class="suave">(opcional)</span></label>
@@ -1657,14 +1661,15 @@
             html += `<nav class="migas"><button onclick="backToOperators()">← Operarios</button><span class="sep">›</span><span class="actual">${esc(o.name)}</span></nav>
                 <div class="cabecera-dia"><div>
                     <h3><i class="fa-solid fa-folder-open" style="color:var(--oro)"></i> ${esc(o.name)}</h3>
+                    ${o.description ? `<p style="color:var(--texto);font-weight:600">${esc(o.description)}</p>` : ''}
                     ${o.date ? `<p>${fmtDate(o.date)}</p>` : ''}
-                    ${o.description ? `<p>${esc(o.description)}</p>` : ''}
                     ${o.transport ? `<p><i class="fa-solid fa-truck"></i> <strong style="color:var(--texto)">Transportado por:</strong> ${esc(o.transport)}</p>` : ''}
                     <span class="modo modo-stock">${enPoder} unidades en su poder</span>
                 </div>
                 <div class="botonera">
                     <button class="btn btn-primario" onclick="openTransfer('${o.id}', true)"><i class="fa-solid fa-plus"></i> Agregar herramientas</button>
                     ${recs.some(r => !r.delivery) ? `<button class="btn btn-entregar" onclick="deliverAll('${o.id}')"><i class="fa-solid fa-circle-check"></i> Entregar todas (${recs.filter(r => !r.delivery).length})</button>` : ''}
+                    <button class="btn" data-n="${esc(o.name)}" onclick="openOpModal(null, this.dataset.n)"><i class="fa-solid fa-folder-plus"></i> Agregar carpeta</button>
                     <button class="btn" onclick="openOpModal('${o.id}')"><i class="fa-solid fa-pen"></i> Editar</button>
                 </div></div>`;
             if (!recs.length) {
@@ -1742,7 +1747,6 @@
 
             const html = [...byName].map(([name, list]) => {
                 list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-                if (list.length === 1) return leaf(list[0], true).replace('op-item op-hija', 'op-item');
                 const gid = 'n:' + name;
                 const abierto = openGroups.has(gid) || !!q;
                 // Agrupar por fecha dentro del operario
@@ -1758,8 +1762,11 @@
                     </div>`;
                 }).join('');
                 return `<div class="op-grupo ${abierto ? 'abierto' : ''}">
-                    ${toggleBtn(gid, abierto, abierto ? 'fa-folder-open' : 'fa-folder', esc(name), `${list.length} carpetas · toca para ${abierto ? 'ocultar' : 'ver'} sus descripciones`, sumStats(list))}
-                    ${abierto ? `<div class="op-sub">${inner}</div>` : ''}
+                    ${toggleBtn(gid, abierto, abierto ? 'fa-folder-open' : 'fa-folder', esc(name), `${list.length} ${list.length === 1 ? 'carpeta' : 'carpetas'} · toca para ${abierto ? 'ocultarlas' : 'verlas'}`, sumStats(list))}
+                    ${abierto ? `<div class="op-sub">
+                        <button class="op-item op-hija op-nueva" data-n="${esc(name)}" onclick="openOpModal(null, this.dataset.n)">
+                            <i class="fa-solid fa-folder-plus"></i><span class="op-texto"><span class="t">Agregar carpeta</span><span class="d">Nueva carpeta para ${esc(name)}</span></span>
+                        </button>${inner}</div>` : ''}
                 </div>`;
             }).join('');
             document.getElementById('op-lista').innerHTML = html ||
@@ -1767,18 +1774,23 @@
         }
 
         // ----- Crear / editar operario -----
-        function openOpModal(id) {
+        function openOpModal(id, forName) {
             const o = id ? getF(id) : null;
+            const fixed = !o && !!forName;   // nueva carpeta dentro de un operario
             document.getElementById('op-id').value = o ? o.id : '';
-            document.getElementById('op-name').value = o ? o.name : '';
+            const nameInp = document.getElementById('op-name');
+            nameInp.value = o ? o.name : (forName || '');
+            nameInp.readOnly = fixed;
+            nameInp.classList.toggle('campo-fijo', fixed);
+            document.getElementById('op-name-hint').hidden = !fixed;
             document.getElementById('op-description').value = o ? (o.description || '') : '';
             document.getElementById('op-transport').value = o ? (o.transport || '') : '';
             document.getElementById('op-date').value = o ? (o.date || '') : todayStr();
             updateOpMode();
-            document.getElementById('op-title').textContent = o ? 'Editar operario' : 'Nuevo operario';
+            document.getElementById('op-title').textContent = o ? 'Editar carpeta' : fixed ? `Nueva carpeta de ${forName}` : 'Nuevo operario';
             document.getElementById('btn-delete-op').hidden = !o;
             showModal('op-modal');
-            document.getElementById('op-name').focus();
+            document.getElementById(fixed ? 'op-description' : 'op-name').focus();
         }
         function closeOpModal() { hideModal('op-modal'); }
 
@@ -1804,6 +1816,7 @@
             const transport = document.getElementById('op-transport').value.trim().toUpperCase();
             const date = document.getElementById('op-date').value;
             if (!name) return;
+            if (!description) { await uiAlert('Escribe el nombre de la carpeta.'); return; }
             if (id) Object.assign(getF(id), { name, description, transport, date });
             else folders.push({ id: uid('o'), type: 'operator', name, description, transport, date });
             saveFolders();
