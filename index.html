@@ -1708,51 +1708,51 @@
         };
         const pencilOp = id => `<span class="editar" role="button" tabindex="0" title="Editar o eliminar" onclick="event.stopPropagation(); openOpModal('${id}')"><i class="fa-solid fa-pen"></i></span>`;
 
-        // Carpetas agrupadas por fecha: si varias tienen la misma fecha, la fecha es el título y se despliegan los nombres
+        // Estructura: carpeta con el nombre del operario → sus carpetas (descripción y fecha);
+        // si dentro de un operario hay varias con la misma fecha, se juntan en una carpeta con esa fecha.
         function renderOpList() {
             const q = norm(document.getElementById('op-search').value);
-            const groups = new Map();
+            const byName = new Map();
             operators().filter(o => !q || norm(o.name + ' ' + (o.description || '')).includes(q))
-                .forEach(o => { const k = o.date || ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(o); });
-            const keys = [...groups.keys()].sort((a, b) => !a ? 1 : !b ? -1 : b.localeCompare(a)); // más recientes primero
-            const single = o => {
-                const st = opStats(o);
-                return `<button class="op-item" onclick="openOperator('${o.id}')">
+                .forEach(o => { if (!byName.has(o.name)) byName.set(o.name, []); byName.get(o.name).push(o); });
+            const sumStats = list => list.reduce((a, o) => { const st = opStats(o); a.n += st.n; a.poder += st.poder; return a; }, { n: 0, poder: 0 });
+            const cifras = st => `<span class="op-cifras"><b>${st.n}</b> traslados${st.poder ? `<br><span class="c-oro">${st.poder} en su poder</span>` : ''}</span>`;
+            const toggleBtn = (gid, abierto, icon, title, sub, st) => `
+                <button class="op-item" data-n="${esc(gid)}" onclick="toggleGroup(this.dataset.n)" aria-expanded="${abierto}">
+                    <i class="fa-solid ${icon}"></i>
+                    <span class="op-texto"><span class="t">${title}</span><span class="d">${sub}</span></span>
+                    ${cifras(st)}
+                    <span class="editar flecha-grupo"><i class="fa-solid fa-chevron-down"></i></span>
+                </button>`;
+            // Carpeta final (descripción + fecha)
+            const leaf = (o, withName) => `<button class="op-item op-hija" onclick="openOperator('${o.id}')">
                     <i class="fa-solid fa-folder"></i>
-                    <span class="op-texto"><span class="t">${esc(o.name)}</span>
-                        <span class="s">${o.date ? fmtDate(o.date) : 'Sin fecha'}</span>
-                        ${o.description ? `<span class="d">${esc(o.description)}</span>` : ''}
-                        ${o.transport ? `<span class="s"><i class="fa-solid fa-truck"></i> Transportado por: ${esc(o.transport)}</span>` : ''}</span>
-                    <span class="op-cifras"><b>${st.n}</b> traslados${st.poder ? `<br><span class="c-oro">${st.poder} en su poder</span>` : ''}</span>
+                    <span class="op-texto"><span class="t">${withName ? esc(o.name) : (o.description ? esc(o.description) : '<span class="suave">Sin descripción</span>')}</span>
+                        <span class="d">${withName && o.description ? esc(o.description) + ' · ' : ''}${o.date ? fmtDate(o.date) : 'Sin fecha'}${o.transport ? ` · Transportado por: ${esc(o.transport)}` : ''}</span></span>
+                    ${cifras(opStats(o))}
                     ${pencilOp(o.id)}
                 </button>`;
-            };
-            const html = keys.map(k => {
-                const list = groups.get(k).sort((a, b) => a.name.localeCompare(b.name, 'es'));
-                if (list.length === 1) return single(list[0]);
-                const gid = 'd:' + k;
+
+            const html = [...byName].map(([name, list]) => {
+                list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+                if (list.length === 1) return leaf(list[0], true).replace('op-item op-hija', 'op-item');
+                const gid = 'n:' + name;
                 const abierto = openGroups.has(gid) || !!q;
-                const tot = list.reduce((s, o) => s + opStats(o).n, 0);
-                const poder = list.reduce((s, o) => s + opStats(o).poder, 0);
+                // Agrupar por fecha dentro del operario
+                const byDate = new Map();
+                list.forEach(o => { const k = o.date || ''; if (!byDate.has(k)) byDate.set(k, []); byDate.get(k).push(o); });
+                const inner = [...byDate].map(([date, fl]) => {
+                    if (fl.length === 1) return leaf(fl[0], false);
+                    const did = 'nd:' + name + '|' + date;
+                    const ab2 = openGroups.has(did) || !!q;
+                    return `<div class="op-grupo ${ab2 ? 'abierto' : ''}">
+                        ${toggleBtn(did, ab2, 'fa-calendar-day', date ? fmtDate(date) : 'Sin fecha', `${fl.length} carpetas en esta fecha · toca para ${ab2 ? 'ocultarlas' : 'verlas'}`, sumStats(fl))}
+                        ${ab2 ? `<div class="op-sub">${fl.map(o => leaf(o, false)).join('')}</div>` : ''}
+                    </div>`;
+                }).join('');
                 return `<div class="op-grupo ${abierto ? 'abierto' : ''}">
-                    <button class="op-item" data-n="${esc(gid)}" onclick="toggleGroup(this.dataset.n)" aria-expanded="${abierto}">
-                        <i class="fa-solid fa-calendar-day"></i>
-                        <span class="op-texto"><span class="t">${k ? fmtDate(k) : 'Sin fecha'}</span>
-                            <span class="d">${list.length} carpetas · ${esc(list.map(o => o.name).join(', ')).slice(0, 120)}</span></span>
-                        <span class="op-cifras"><b>${tot}</b> traslados${poder ? `<br><span class="c-oro">${poder} en su poder</span>` : ''}</span>
-                        <span class="editar flecha-grupo"><i class="fa-solid fa-chevron-down"></i></span>
-                    </button>
-                    ${abierto ? `<div class="op-sub">${list.map(o => {
-                        const st = opStats(o);
-                        return `<button class="op-item op-hija" onclick="openOperator('${o.id}')">
-                            <i class="fa-solid fa-folder"></i>
-                            <span class="op-texto"><span class="t">${esc(o.name)}</span>
-                                ${o.description ? `<span class="d">${esc(o.description)}</span>` : ''}
-                                ${o.transport ? `<span class="d"><i class="fa-solid fa-truck"></i> Transportado por: ${esc(o.transport)}</span>` : ''}</span>
-                            <span class="op-cifras"><b>${st.n}</b> traslados${st.poder ? `<br><span class="c-oro">${st.poder} en su poder</span>` : ''}</span>
-                            ${pencilOp(o.id)}
-                        </button>`;
-                    }).join('')}</div>` : ''}
+                    ${toggleBtn(gid, abierto, abierto ? 'fa-folder-open' : 'fa-folder', esc(name), `${list.length} carpetas · toca para ${abierto ? 'ocultar' : 'ver'} sus descripciones`, sumStats(list))}
+                    ${abierto ? `<div class="op-sub">${inner}</div>` : ''}
                 </div>`;
             }).join('');
             document.getElementById('op-lista').innerHTML = html ||
