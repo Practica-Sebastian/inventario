@@ -1669,7 +1669,6 @@
                 <div class="botonera">
                     <button class="btn btn-primario" onclick="openTransfer('${o.id}', true)"><i class="fa-solid fa-plus"></i> Agregar herramientas</button>
                     ${recs.some(r => !r.delivery) ? `<button class="btn btn-entregar" onclick="deliverAll('${o.id}')"><i class="fa-solid fa-circle-check"></i> Entregar todas (${recs.filter(r => !r.delivery).length})</button>` : ''}
-                    <button class="btn" data-n="${esc(o.name)}" onclick="openOpModal(null, this.dataset.n)"><i class="fa-solid fa-folder-plus"></i> Agregar carpeta</button>
                     <button class="btn" onclick="openOpModal('${o.id}')"><i class="fa-solid fa-pen"></i> Editar</button>
                 </div></div>`;
             if (!recs.length) {
