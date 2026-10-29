@@ -425,6 +425,8 @@
         .op-sub { display: grid; gap: 8px; padding-left: 26px; border-left: 2px solid var(--borde-fuerte); margin-left: 18px; }
         .op-hija { padding-top: 10px; padding-bottom: 10px; }
         .op-hija .t { font-size: 14px; }
+        .btn-entregar { border-color: rgba(76,195,138,0.6); color: #4CC38A; }
+        .btn-entregar:hover { background: rgba(76,195,138,0.12); border-color: #4CC38A; }
     </style>
 </head>
 <body>
@@ -1653,6 +1655,7 @@
                 </div>
                 <div class="botonera">
                     <button class="btn btn-primario" onclick="openTransfer('${o.id}', true)"><i class="fa-solid fa-plus"></i> Agregar herramientas</button>
+                    ${recs.some(r => !r.delivery) ? `<button class="btn btn-entregar" onclick="deliverAll('${o.id}')"><i class="fa-solid fa-circle-check"></i> Entregar todas (${recs.filter(r => !r.delivery).length})</button>` : ''}
                     <button class="btn" onclick="openOpModal('${o.id}')"><i class="fa-solid fa-pen"></i> Editar</button>
                 </div></div>`;
             if (!recs.length) {
@@ -1937,6 +1940,26 @@
             if (!v) return;
             r.delivery = v;
             if (r.deducted && !r.returned) { restoreStock(r); r.returned = true; }
+            saveAndRender();
+        }
+
+        // Registra la entrega de todas las herramientas pendientes del operario de una sola vez
+        async function deliverAll(opId) {
+            const o = getF(opId);
+            const pend = records.filter(r => r.folderId === opId && !r.delivery);
+            if (!o || !pend.length) return;
+            const unidades = pend.reduce((s, r) => s + r.qty, 0);
+            const vuelven = pend.filter(r => r.deducted && !r.returned).reduce((s, r) => s + r.qty, 0);
+            const v = await uiDialog({
+                message: `Entregar todas las herramientas pendientes de ${o.name}: ${pend.length} herramientas (${unidades} unidades).` +
+                         (vuelven ? `\n${vuelven} unidades vuelven al inventario.` : '') + '\n\nFecha de entrega:',
+                input: todayStr(), inputType: 'date', okText: 'Entregar todas'
+            });
+            if (!v) return;
+            pend.forEach(r => {
+                r.delivery = v;
+                if (r.deducted && !r.returned) { restoreStock(r); r.returned = true; }
+            });
             saveAndRender();
         }
 
@@ -2648,7 +2671,7 @@
             if (/401/.test(result)) tips.push('El PIN del Worker (secreto PIN) no coincide con el que ingresaste.');
             if (/D1|DB/.test(result)) tips.push('En el Worker, ve a Configuración → Enlaces y agrega la base D1 con el nombre de variable DB.');
             if (/404/.test(result)) tips.push('La dirección no apunta al Worker correcto. Debe ser la de workers.dev, sin /api al final.');
-            if (/llegar/.test(result)) tips.push('Revisa que la dirección sea la del Worker y que esté implementado. Si pusiste ALLOWED_ORIGIN, debe ser exactamente ' + location.origin + ' (sin / al final).');
+            if (/llegar/.test(result)) tips.push('Abre ' + API_BASE + ' en otra pestaña. Debe mostrar un texto con "inventario-bodega-api". Si muestra "Hello World", un error o no abre, el código del Worker no está implementado: pega worker.js en Editar código y toca Implementar.');
             uiAlert(`Servidor: ${API_BASE}\nResultado: ${result}${net.lastError && !/correcta/.test(result) ? '\nÚltimo error: ' + net.lastError : ''}${tips.length ? '\n\n' + tips.join('\n') : ''}`);
         }
 
