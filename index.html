@@ -1585,6 +1585,7 @@
         function saveFolders() {
             writeLS(LS_KEYS.folders, folders);
             writeLS(LS_KEYS.records, records);
+            if (typeof scheduleSync === 'function') scheduleSync();
         }
 
         // ----- Navegación entre bodegas y operarios -----
@@ -2001,6 +2002,7 @@
         function setStatus(state) {
             const el = document.getElementById('sync-status'), txt = document.getElementById('sync-text');
             if (!el) return;
+            if (typeof net !== 'undefined' && net.on && state === 'ok') return; // con servidor, el indicador muestra la conexión
             el.className = 'sync ' + (state === 'ok' ? 'ok' : 'error');
             txt.textContent = state === 'ok' ? 'Guardado' : 'No se pudo guardar';
             el.title = state === 'ok' ? 'Los cambios se guardan automáticamente en este navegador.' : 'El almacenamiento del navegador está lleno.';
@@ -2587,6 +2589,179 @@
             pendingImport = null;
         }
 
+        // =================== Datos compartidos (Cloudflare Worker + D1) ===================
+        // Pega aquí la dirección de tu Worker (ver instrucciones). Si queda vacío, la app guarda solo en este navegador.
+        const API_URL = 'https://inventario-api.sebastian-e64.workers.dev/';   // Ejemplo: 'https://inventario-api.tu-usuario.workers.dev'
+        const POLL_MS = 4000; // cada cuánto se buscan cambios de otras personas
+
+        const net = {
+            on: !!API_URL, started: false, ready: false, since: 0, pushing: false, again: false, timer: null, pollTimer: null,
+            last: { tools: new Map(), folders: new Map(), records: new Map() } // lo que tiene el servidor, por documento
+        };
+        const SYNC_COLS = ['tools', 'folders', 'records'];
+        const stable = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x))
+            ? Object.keys(x).sort().reduce((o, key) => (o[key] = x[key], o), {}) : x);
+        const apiPin = () => { try { return sessionStorage.getItem('bodega_pin') || PIN; } catch (e) { return PIN; } };
+        const api = (path, opts = {}) => fetch(API_URL.replace(/\/+$/, '') + path, {
+            ...opts, cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Pin': apiPin(), ...(opts.headers || {}) }
+        });
+
+        function setNet(state) {
+            const el = document.getElementById('sync-status'), txt = document.getElementById('sync-text');
+            const map = {
+                ok: ['ok', 'Sincronizado', 'Todas las personas con el link ven estos mismos datos.'],
+                saving: ['ok', 'Guardando…', 'Enviando cambios al servidor.'],
+                connecting: ['conectando', 'Conectando…', 'Conectando con el servidor.'],
+                offline: ['error', 'Sin conexión', 'No se pudo conectar con el servidor. Los cambios quedan en este equipo y se envían al reconectar.']
+            };
+            const [cls, label, title] = map[state];
+            el.className = 'sync ' + cls; txt.textContent = label; el.title = title;
+        }
+
+        const localDocs = () => ({ tools: tools.map(slimTool), folders, records });
+
+        // Diferencias entre lo que hay en este equipo y lo último que se sabe del servidor
+        function localDiff() {
+            const lists = localDocs(), out = [];
+            for (const col of SYNC_COLS) {
+                const seen = new Set();
+                for (const item of lists[col]) {
+                    const id = String(item.id), js = stable(item);
+                    seen.add(id);
+                    if (net.last[col].get(id) !== js) out.push({ col, id, json: js });
+                }
+                for (const id of net.last[col].keys()) if (!seen.has(id)) out.push({ col, id, json: null });
+            }
+            return out;
+        }
+
+        function scheduleSync() {
+            if (!net.on || !net.ready) return;
+            clearTimeout(net.timer);
+            net.timer = setTimeout(() => pushChanges(false), 400);
+        }
+
+        async function pushChanges(init) {
+            if (net.pushing) { net.again = true; return; }
+            const changes = localDiff();
+            if (!changes.length && !init) return;
+            net.pushing = true;
+            setNet('saving');
+            try {
+                // Lotes pequeños porque las fotos pesan
+                for (let i = 0; i < Math.max(changes.length, 1); i += 25) {
+                    const part = changes.slice(i, i + 25);
+                    const res = await api('/api/sync', { method: 'POST', body: JSON.stringify({
+                        init: !!init && i === 0,
+                        changes: part.map(c => ({ col: c.col, id: c.id, data: c.json === null ? null : JSON.parse(c.json) }))
+                    }) });
+                    if (res.status === 401) { onUnauthorized(); return; }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    part.forEach(c => c.json === null ? net.last[c.col].delete(c.id) : net.last[c.col].set(c.id, c.json));
+                }
+                setNet('ok');
+            } catch (err) {
+                setNet('offline');
+                clearTimeout(net.timer);
+                net.timer = setTimeout(() => pushChanges(false), 5000);
+            } finally {
+                net.pushing = false;
+                if (net.again) { net.again = false; pushChanges(false); }
+            }
+        }
+
+        function applyRemote(col, id, data) {
+            if (col === 'tools') {
+                const i = tools.findIndex(t => String(t.id) === id);
+                if (data === null) { if (i >= 0) tools.splice(i, 1); }
+                else { const t = normalizeTool(data); if (i >= 0) tools[i] = t; else tools.push(t); }
+            } else {
+                const list = col === 'folders' ? folders : records;
+                const i = list.findIndex(x => String(x.id) === id);
+                if (data === null) { if (i >= 0) list.splice(i, 1); }
+                else if (i >= 0) list[i] = data; else list.push(data);
+            }
+        }
+        const sortTools = () => tools.sort((a, b) => {
+            const n = t => parseInt((String(t.code).match(/(\d+)$/) || [0, 0])[1], 10);
+            return n(a) - n(b) || String(a.code).localeCompare(String(b.code));
+        });
+
+        async function pullChanges() {
+            if (!net.on) return;
+            try {
+                const res = await api('/api/sync?since=' + net.since);
+                if (res.status === 401) { onUnauthorized(); return; }
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                if (!net.ready) {
+                    if (!data.initialized) {
+                        // Primera vez que se usa el servidor: se sube el inventario de este equipo
+                        net.ready = true;
+                        await pushChanges(true);
+                    } else {
+                        // El servidor manda: se reemplaza lo de este equipo por lo compartido
+                        tools = []; folders = []; records = [];
+                        SYNC_COLS.forEach(c => net.last[c].clear());
+                        data.changes.forEach(c => {
+                            if (c.deleted) return;
+                            applyRemote(c.col, String(c.id), c.data);
+                            net.last[c.col].set(String(c.id), stable(c.col === 'tools' ? slimTool(normalizeTool(c.data)) : c.data));
+                        });
+                        folders = cleanFolders(folders);
+                        sortTools();
+                        net.ready = true;
+                        saveLocalOnly();
+                        renderAll();
+                    }
+                } else {
+                    // Cambios de otras personas (sin pisar lo que este equipo todavía no envía)
+                    const pending = new Set(localDiff().map(c => c.col + '/' + c.id));
+                    let changed = false;
+                    data.changes.forEach(c => {
+                        const id = String(c.id), key = c.col + '/' + id;
+                        const js = c.deleted ? null : stable(c.col === 'tools' ? slimTool(normalizeTool(c.data)) : c.data);
+                        if ((net.last[c.col].get(id) ?? null) === js) return;
+                        if (pending.has(key)) return;
+                        applyRemote(c.col, id, c.deleted ? null : c.data);
+                        js === null ? net.last[c.col].delete(id) : net.last[c.col].set(id, js);
+                        changed = true;
+                    });
+                    if (changed) { sortTools(); saveLocalOnly(); renderAll(); }
+                }
+                net.since = Math.max(0, data.now - 5000);
+                if (!net.pushing) setNet('ok');
+            } catch (err) {
+                setNet('offline');
+            }
+        }
+
+        function saveLocalOnly() { saveTools(); writeLS(LS_KEYS.folders, folders); writeLS(LS_KEYS.records, records); }
+
+        async function startSync() {
+            if (!net.on || net.started) return;
+            net.started = true;
+            setNet('connecting');
+            await pullChanges();
+            const loop = () => {
+                clearTimeout(net.pollTimer);
+                net.pollTimer = setTimeout(async () => { await pullChanges(); loop(); }, document.hidden ? POLL_MS * 6 : POLL_MS);
+            };
+            loop();
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) pullChanges(); });
+            window.addEventListener('online', () => { pullChanges(); scheduleSync(); });
+        }
+
+        function onUnauthorized() {
+            setNet('offline');
+            try { sessionStorage.removeItem('bodega_pin'); sessionStorage.removeItem('bodega_pin_ok'); } catch (e) {}
+            net.started = false;
+            clearTimeout(net.pollTimer);
+            showPin();
+            document.getElementById('pin-error').textContent = 'El servidor no aceptó el PIN. Ingrésalo de nuevo.';
+            document.getElementById('pin-error').hidden = false;
+        }
+
         // =================== PIN de seguridad ===================
         const PIN = '3030';
         function showPin() {
@@ -2598,11 +2773,22 @@
             document.getElementById('pin-error').hidden = true;
             setTimeout(() => document.getElementById('pin-input').focus(), 50);
         }
-        function checkPin(e) {
+        async function pinAccepted(value) {
+            if (!API_URL) return value === PIN;
+            try {
+                const res = await fetch(API_URL.replace(/\/+$/, '') + '/api/ping', { headers: { 'X-Pin': value }, cache: 'no-store' });
+                if (res.status === 401) return false;
+                if (res.ok) return true;
+            } catch (err) { /* sin conexión: se valida en este equipo */ }
+            return value === PIN;
+        }
+        async function checkPin(e) {
             e.preventDefault();
             const inp = document.getElementById('pin-input');
-            if (inp.value === PIN) {
-                try { sessionStorage.setItem('bodega_pin_ok', '1'); } catch (err) {}
+            document.getElementById('pin-error').textContent = 'PIN incorrecto. Inténtalo de nuevo.';
+            if (await pinAccepted(inp.value)) {
+                try { sessionStorage.setItem('bodega_pin_ok', '1'); sessionStorage.setItem('bodega_pin', inp.value); } catch (err) {}
+                startSync();
                 document.getElementById('pin-screen').hidden = true;
                 document.documentElement.classList.remove('pin-bloqueado');
                 document.documentElement.classList.add('pin-ok');
@@ -2657,6 +2843,11 @@
             goSection(SECTIONS[sec] ? sec : 'all');
             saveAndRender();
             hydrateIcons();
+            if (net.on) {
+                let ok = false;
+                try { ok = sessionStorage.getItem('bodega_pin_ok') === '1'; } catch (e) {}
+                if (ok) startSync(); else setNet('connecting');
+            }
 
             // Fotos guardadas aparte
             Promise.all(pendingPhotos.map(id => idb.get('foto:' + id).then(ph => ({ id, ph })).catch(() => ({ id, ph: null }))))
