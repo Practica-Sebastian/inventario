@@ -427,6 +427,14 @@
         .op-hija .t { font-size: 14px; }
         .btn-entregar { border-color: rgba(76,195,138,0.6); color: #4CC38A; }
         .btn-entregar:hover { background: rgba(76,195,138,0.12); border-color: #4CC38A; }
+        .aviso-dup { margin-top: 10px; padding: 10px 12px; border-radius: 10px; font-size: 13px; border-left: 3px solid var(--oro); background: rgba(212,168,69,0.1); }
+        .aviso-dup.igual { border-left-color: var(--rojo); background: rgba(229,96,77,0.1); }
+        .aviso-dup strong { display: block; margin-bottom: 6px; }
+        .dup-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 5px 0; border-top: 1px solid var(--borde); }
+        .dup-item:first-of-type { border-top: 0; }
+        .dup-item .btn { height: 32px; font-size: 12.5px; padding: 0 10px; flex-shrink: 0; }
+        .eleccion { display: grid; gap: 8px; }
+        .eleccion .btn { width: 100%; justify-content: flex-start; }
     </style>
 </head>
 <body>
@@ -610,7 +618,8 @@
                 </div>
                 <div>
                     <label class="etiqueta" for="tool-name">Nombre (activo / equipo)</label>
-                    <input type="text" id="tool-name" class="campo" required placeholder="Ej. Alicate de doble pinza (3)">
+                    <input type="text" id="tool-name" class="campo" required placeholder="Ej. Alicate de doble pinza (3)" oninput="checkDuplicates()">
+                    <div id="dup-box" class="aviso-dup" hidden></div>
                 </div>
                 <div>
                     <label class="etiqueta" for="tool-description">Descripción</label>
@@ -619,11 +628,11 @@
                 <div class="fila">
                     <div>
                         <label class="etiqueta" for="tool-brand">Marca</label>
-                        <input type="text" id="tool-brand" class="campo" placeholder="Ej. DeWalt">
+                        <input type="text" id="tool-brand" class="campo" placeholder="Ej. DeWalt" oninput="checkDuplicates()">
                     </div>
                     <div>
                         <label class="etiqueta" for="tool-model">Modelo</label>
-                        <input type="text" id="tool-model" class="campo" placeholder="Ej. DCH133B">
+                        <input type="text" id="tool-model" class="campo" placeholder="Ej. DCH133B" oninput="checkDuplicates()">
                     </div>
                 </div>
                 <div class="fila">
@@ -2200,6 +2209,7 @@
             document.getElementById('tool-company').value = scope !== 'all' ? scope : '';
             fillLocationOptions();
             toggleRackShelf();
+            document.getElementById('dup-box').hidden = true;
             document.getElementById('tool-name').focus();
         }
         function closeModal() { hideModal('modal'); }
@@ -2215,6 +2225,56 @@
         function closeImageModal() { hideModal('image-modal'); }
 
         // Guardar / editar / eliminar
+        // ---------- Herramientas repetidas ----------
+        // Misma especificación = mismo nombre, marca y modelo (sin importar mayúsculas, tildes ni la cantidad entre paréntesis)
+        const specKey = t => [keyName(t.name), norm(t.brand), norm(t.model)].join('|');
+        function findDuplicates(draft, selfId) {
+            const k = specKey(draft), n = keyName(draft.name);
+            if (!n) return { same: [], similar: [] };
+            const others = tools.filter(t => t.id !== selfId);
+            const same = others.filter(t => specKey(t) === k);
+            const similar = others.filter(t => keyName(t.name) === n && specKey(t) !== k);
+            return { same, similar };
+        }
+        const dupLabel = t => `<span><span class="codigo">${esc(t.code)}</span> ${esc(t.name)}${t.brand ? ' · ' + esc(t.brand) : ''}${t.model ? ' ' + esc(t.model) : ''}
+            <span class="suave"> · ${t.quantity} disp. · ${esc(t.company || '')}</span></span>`;
+
+        let dupTimer = null;
+        function checkDuplicates() {
+            clearTimeout(dupTimer);
+            dupTimer = setTimeout(() => {
+                const box = document.getElementById('dup-box');
+                const selfId = Number(document.getElementById('tool-id').value) || null;
+                const draft = { name: document.getElementById('tool-name').value, brand: document.getElementById('tool-brand').value, model: document.getElementById('tool-model').value };
+                const { same, similar } = findDuplicates(draft, selfId);
+                if (!same.length && !similar.length) { box.hidden = true; box.innerHTML = ''; return; }
+                box.hidden = false;
+                box.className = 'aviso-dup' + (same.length ? ' igual' : '');
+                const row = t => `<div class="dup-item">${dupLabel(t)}<button type="button" class="btn" onclick="closeModal(); editTool(${t.id})">Abrir</button></div>`;
+                box.innerHTML = (same.length ? `<strong>Ya existe una herramienta con el mismo nombre, marca y modelo:</strong>${same.map(row).join('')}` : '') +
+                    (similar.length ? `<strong${same.length ? ' style="margin-top:8px"' : ''}>Hay herramientas con el mismo nombre (otra marca o modelo):</strong>${similar.slice(0, 5).map(row).join('')}` : '');
+            }, 200);
+        }
+
+        // Ventana con varias opciones
+        function uiChoice(message, options) {
+            return new Promise(resolve => {
+                const wrap = document.createElement('div');
+                wrap.className = 'fondo-modal abierto';
+                wrap.style.zIndex = 270;
+                wrap.innerHTML = `<div class="tarjeta modal" style="max-width:460px" role="alertdialog" aria-modal="true">
+                    <div class="resumen-import"><p style="margin:0;white-space:pre-line;line-height:1.5">${esc(message)}</p>
+                    <div class="eleccion">${options.map((o, i) => `<button type="button" class="btn ${o.primary ? 'btn-primario' : ''}" data-i="${i}">${o.label}</button>`).join('')}</div></div></div>`;
+                const done = v => { wrap.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
+                const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
+                wrap.querySelectorAll('button').forEach(b => b.onclick = () => done(options[b.dataset.i].value));
+                document.addEventListener('keydown', onKey, true);
+                document.body.appendChild(wrap);
+                hydrateIcons(wrap);
+                wrap.querySelector('button').focus();
+            });
+        }
+
         async function saveTool(e) {
             e.preventDefault();
             const id = document.getElementById('tool-id').value;
@@ -2238,6 +2298,30 @@
                 photo: currentImageData || DEFAULT_IMAGE
             };
 
+            // Revisar si ya existe una herramienta con la misma especificación
+            const { same } = findDuplicates(tool, id ? Number(id) : null);
+            if (same.length) {
+                const ex = same[0];
+                const choice = await uiChoice(
+                    `Ya existe ${ex.code} · ${ex.name}${ex.brand ? ' · ' + ex.brand : ''}${ex.model ? ' ' + ex.model : ''} (${ex.quantity} disponibles).\n¿Qué quieres hacer para no repetirla?`,
+                    [
+                        ...(!id ? [{ label: `<i class="fa-solid fa-plus"></i> Sumar ${tool.quantity} a la existente (quedaría en ${ex.quantity + tool.quantity})`, value: 'sumar', primary: true }] : []),
+                        { label: '<i class="fa-solid fa-pen"></i> Abrir la existente', value: 'abrir' },
+                        { label: 'Guardar como otra herramienta de todas formas', value: 'guardar' },
+                        { label: 'Cancelar', value: null }
+                    ]);
+                if (choice === null) return;
+                if (choice === 'abrir') { closeModal(); editTool(ex.id); return; }
+                if (choice === 'sumar') {
+                    ex.quantity += tool.quantity;
+                    if ((!ex.photo || ex.photo === DEFAULT_IMAGE) && tool.photo !== DEFAULT_IMAGE) ex.photo = tool.photo;
+                    if (!ex.description && tool.description) ex.description = tool.description;
+                    saveAndRender();
+                    closeModal();
+                    return;
+                }
+            }
+
             const duplicate = tools.find(t => t.code.toLowerCase() === tool.code.toLowerCase() && t.id !== tool.id);
             if (duplicate && !(await uiConfirm(`El código ${tool.code} ya existe (${duplicate.name}). ¿Guardar de todas formas?`))) return;
 
@@ -2260,6 +2344,7 @@
             showCodeHint(true);
             document.getElementById('tool-name').value = tool.name;
             document.getElementById('tool-brand').value = tool.brand || '';
+            document.getElementById('dup-box').hidden = true;
             document.getElementById('tool-model').value = tool.model || '';
             document.getElementById('tool-description').value = tool.description || '';
             document.getElementById('tool-quantity').value = tool.quantity;
