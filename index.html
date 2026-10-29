@@ -449,7 +449,7 @@
                 <h1 id="app-title">Bodega Principal · Inventario de Herramientas</h1>
             </div>
             <div class="acciones-encabezado">
-                <span class="sync ok" id="sync-status" title="Los cambios se guardan automáticamente en este navegador."><span id="sync-text">Guardado</span></span>
+                <span class="sync ok" id="sync-status" role="button" tabindex="0" onclick="showNetInfo()" style="cursor:pointer" title="Los cambios se guardan automáticamente en este navegador."><span id="sync-text">Guardado</span></span>
                 <button class="btn" id="btn-menu" onclick="toggleMenu(event)" aria-haspopup="true" aria-expanded="false">
                     <i class="fa-solid fa-bars"></i> Menú
                     <svg class="flecha-menu" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
@@ -2591,22 +2591,36 @@
 
         // =================== Datos compartidos (Cloudflare Worker + D1) ===================
         // Pega aquí la dirección de tu Worker (ver instrucciones). Si queda vacío, la app guarda solo en este navegador.
-        const API_URL = 'https://inventario-api.sebastian-e64.workers.dev/';   // Ejemplo: 'https://inventario-api.tu-usuario.workers.dev'
+        const API_URL = '';   // Ejemplo: 'https://inventario-api.tu-usuario.workers.dev'
         const POLL_MS = 4000; // cada cuánto se buscan cambios de otras personas
+        // Corrige errores comunes al pegar la dirección: sin https://, con / o /api al final
+        const API_BASE = (() => {
+            let u = String(API_URL || '').trim();
+            if (!u) return '';
+            if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+            return u.replace(/\/+$/, '').replace(/\/api$/i, '');
+        })();
 
         const net = {
-            on: !!API_URL, started: false, ready: false, since: 0, pushing: false, again: false, timer: null, pollTimer: null,
+            on: !!API_BASE, started: false, lastError: '', ready: false, since: 0, pushing: false, again: false, timer: null, pollTimer: null,
             last: { tools: new Map(), folders: new Map(), records: new Map() } // lo que tiene el servidor, por documento
         };
         const SYNC_COLS = ['tools', 'folders', 'records'];
         const stable = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x))
             ? Object.keys(x).sort().reduce((o, key) => (o[key] = x[key], o), {}) : x);
         const apiPin = () => { try { return sessionStorage.getItem('bodega_pin') || PIN; } catch (e) { return PIN; } };
-        const api = (path, opts = {}) => fetch(API_URL.replace(/\/+$/, '') + path, {
+        const api = (path, opts = {}) => fetch(API_BASE + path, {
             ...opts, cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Pin': apiPin(), ...(opts.headers || {}) }
         });
 
-        function setNet(state) {
+        async function httpError(res) {
+            let msg = '';
+            try { msg = (await res.json()).error || ''; } catch (e) {}
+            return new Error(`El servidor respondió ${res.status}${msg ? ': ' + msg : ''}`);
+        }
+        function setNet(state, err) {
+            if (state === 'offline') net.lastError = err ? (err.message || String(err)) : net.lastError;
+            if (state === 'ok') net.lastError = '';
             const el = document.getElementById('sync-status'), txt = document.getElementById('sync-text');
             const map = {
                 ok: ['ok', 'Sincronizado', 'Todas las personas con el link ven estos mismos datos.'],
@@ -2615,7 +2629,27 @@
                 offline: ['error', 'Sin conexión', 'No se pudo conectar con el servidor. Los cambios quedan en este equipo y se envían al reconectar.']
             };
             const [cls, label, title] = map[state];
-            el.className = 'sync ' + cls; txt.textContent = label; el.title = title;
+            el.className = 'sync ' + cls; txt.textContent = label;
+            el.title = title + (state === 'offline' && net.lastError ? '\n' + net.lastError : '') + '\nToca para ver el detalle.';
+        }
+
+        // Diagnóstico al tocar el indicador
+        async function showNetInfo() {
+            if (!net.on) { uiAlert('La app está guardando solo en este navegador.\nPara compartir los datos, pon la dirección del Worker en API_URL dentro de index.html.'); return; }
+            let result;
+            try {
+                const res = await fetch(API_BASE + '/api/ping', { headers: { 'X-Pin': apiPin() }, cache: 'no-store' });
+                if (res.ok) result = 'Conexión correcta con el servidor.';
+                else result = (await httpError(res)).message;
+            } catch (err) {
+                result = 'No se pudo llegar al servidor (' + (err.message || err) + ').';
+            }
+            const tips = [];
+            if (/401/.test(result)) tips.push('El PIN del Worker (secreto PIN) no coincide con el que ingresaste.');
+            if (/D1|DB/.test(result)) tips.push('En el Worker, ve a Configuración → Enlaces y agrega la base D1 con el nombre de variable DB.');
+            if (/404/.test(result)) tips.push('La dirección no apunta al Worker correcto. Debe ser la de workers.dev, sin /api al final.');
+            if (/llegar/.test(result)) tips.push('Revisa que la dirección sea la del Worker y que esté implementado. Si pusiste ALLOWED_ORIGIN, debe ser exactamente ' + location.origin + ' (sin / al final).');
+            uiAlert(`Servidor: ${API_BASE}\nResultado: ${result}${net.lastError && !/correcta/.test(result) ? '\nÚltimo error: ' + net.lastError : ''}${tips.length ? '\n\n' + tips.join('\n') : ''}`);
         }
 
         const localDocs = () => ({ tools: tools.map(slimTool), folders, records });
@@ -2656,12 +2690,12 @@
                         changes: part.map(c => ({ col: c.col, id: c.id, data: c.json === null ? null : JSON.parse(c.json) }))
                     }) });
                     if (res.status === 401) { onUnauthorized(); return; }
-                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    if (!res.ok) throw await httpError(res);
                     part.forEach(c => c.json === null ? net.last[c.col].delete(c.id) : net.last[c.col].set(c.id, c.json));
                 }
                 setNet('ok');
             } catch (err) {
-                setNet('offline');
+                setNet('offline', err);
                 clearTimeout(net.timer);
                 net.timer = setTimeout(() => pushChanges(false), 5000);
             } finally {
@@ -2692,7 +2726,7 @@
             try {
                 const res = await api('/api/sync?since=' + net.since);
                 if (res.status === 401) { onUnauthorized(); return; }
-                if (!res.ok) throw new Error('HTTP ' + res.status);
+                if (!res.ok) throw await httpError(res);
                 const data = await res.json();
                 if (!net.ready) {
                     if (!data.initialized) {
@@ -2732,7 +2766,7 @@
                 net.since = Math.max(0, data.now - 5000);
                 if (!net.pushing) setNet('ok');
             } catch (err) {
-                setNet('offline');
+                setNet('offline', err);
             }
         }
 
@@ -2774,9 +2808,9 @@
             setTimeout(() => document.getElementById('pin-input').focus(), 50);
         }
         async function pinAccepted(value) {
-            if (!API_URL) return value === PIN;
+            if (!API_BASE) return value === PIN;
             try {
-                const res = await fetch(API_URL.replace(/\/+$/, '') + '/api/ping', { headers: { 'X-Pin': value }, cache: 'no-store' });
+                const res = await fetch(API_BASE + '/api/ping', { headers: { 'X-Pin': value }, cache: 'no-store' });
                 if (res.status === 401) return false;
                 if (res.ok) return true;
             } catch (err) { /* sin conexión: se valida en este equipo */ }
