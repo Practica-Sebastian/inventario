@@ -1727,8 +1727,15 @@
             // Carpeta final (descripción + fecha)
             const leaf = (o, withName) => `<button class="op-item op-hija" onclick="openOperator('${o.id}')">
                     <i class="fa-solid fa-folder"></i>
-                    <span class="op-texto"><span class="t">${withName ? esc(o.name) : (o.description ? esc(o.description) : '<span class="suave">Sin descripción</span>')}</span>
-                        <span class="d">${withName && o.description ? esc(o.description) + ' · ' : ''}${o.date ? fmtDate(o.date) : 'Sin fecha'}${o.transport ? ` · Transportado por: ${esc(o.transport)}` : ''}</span></span>
+                    ${withName ? `<span class="op-texto"><span class="t">${esc(o.name)}</span>
+                        <span class="d">${o.description ? esc(o.description) + ' · ' : ''}${o.date ? fmtDate(o.date) : 'Sin fecha'}${o.transport ? ` · Transportado por: ${esc(o.transport)}` : ''}</span></span>`
+                    : o.description
+                        // Con descripción: se ve la descripción y la fecha
+                        ? `<span class="op-texto"><span class="t">${esc(o.description)}</span>
+                            <span class="d">${o.date ? fmtDate(o.date) : 'Sin fecha'}${o.transport ? ` · Transportado por: ${esc(o.transport)}` : ''}</span></span>`
+                        // Sin descripción: solo se ve la fecha
+                        : `<span class="op-texto"><span class="t">${o.date ? fmtDate(o.date) : 'Sin fecha'}</span>
+                            ${o.transport ? `<span class="d">Transportado por: ${esc(o.transport)}</span>` : ''}</span>`}
                     ${cifras(opStats(o))}
                     ${pencilOp(o.id)}
                 </button>`;
