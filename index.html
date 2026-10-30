@@ -445,6 +445,11 @@
         .op-buscar { height: 38px; font-size: 14px; }
         .op-cab .flecha-grupo { cursor: pointer; }
         @media (max-width: 700px) { .op-cab { grid-template-columns: 1fr; } .op-cab .op-cifras { display: none; } }
+        .fila-picker.ya-agregada { border-color: rgba(76,195,138,0.55); background: rgba(76,195,138,0.06); }
+        .marca-ya { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 1px 8px; border-radius: 999px;
+                    font-size: 11px; font-weight: 700; color: #4CC38A; border: 1px solid rgba(76,195,138,0.6); }
+        .marca-carpeta { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700;
+                         color: var(--oro); border: 1px solid rgba(212,168,69,0.6); }
     </style>
 </head>
 <body>
@@ -828,16 +833,16 @@
                 </div>
                 <div id="tr-new-box" hidden>
                     <label class="etiqueta" for="tr-new-op">Nombre del operario nuevo</label>
-                    <input type="text" id="tr-new-op" class="campo" maxlength="60" placeholder="Ej. Carlos Mora">
+                    <input type="text" id="tr-new-op" class="campo" maxlength="60" placeholder="Ej. Carlos Mora" oninput="saveDraft()">
                 </div>
                 <div class="fila">
                     <div id="tr-date-box">
                         <label class="etiqueta" for="tr-date">Fecha del traslado</label>
-                        <input type="date" id="tr-date" class="campo" oninput="renderTransfer()" onchange="renderTransfer()">
+                        <input type="date" id="tr-date" class="campo" oninput="renderTransfer(); saveDraft()" onchange="renderTransfer(); saveDraft()">
                     </div>
                     <div>
                         <label class="etiqueta" for="tr-note">Nota <span class="suave">(opcional)</span></label>
-                        <input type="text" id="tr-note" class="campo" maxlength="200" placeholder="Ej. Para el proyecto Hospital">
+                        <input type="text" id="tr-note" class="campo" maxlength="200" placeholder="Ej. Para el proyecto Hospital" oninput="saveDraft()">
                     </div>
                 </div>
                 <p class="aviso" id="tr-mode" style="margin:-4px 0 0"></p>
@@ -850,7 +855,9 @@
                     <div class="carrito-titulo">En este traslado <span class="suave" id="tr-total"></span></div>
                     <div id="tr-cart"></div>
                 </div>
-                <div class="pie-form"><div class="derecha">
+                <div class="pie-form">
+                    <button type="button" class="btn btn-peligro" id="tr-clear" onclick="clearCart()" hidden><i class="fa-solid fa-trash-can"></i> Eliminar</button>
+                    <div class="derecha">
                     <button type="button" class="btn" onclick="closeTransfer()">Cancelar</button>
                     <button type="button" class="btn btn-primario" id="tr-confirm" onclick="confirmTransfer()"><i class="fa-solid fa-circle-check"></i> Confirmar traslado</button>
                 </div></div>
@@ -1873,44 +1880,87 @@
 
         // ----- Traslado de equipo -----
         let cart = []; // [{toolId, qty}]
+        // Borradores: lo que se va armando no se pierde al cerrar la ventana (uno por carpeta y otro para "Traslado Equipo")
+        let draftKey = 'general';
+        const DRAFTS_KEY = 'bodega_borradores_traslado';
+        const readDrafts = () => { try { return JSON.parse(localStorage.getItem(DRAFTS_KEY)) || {}; } catch (e) { return {}; } };
+        function saveDraft() {
+            const all = readDrafts();
+            const d = {
+                origin: document.getElementById('tr-origin').value,
+                cart: cart.map(c => ({ ...c })),
+                note: document.getElementById('tr-note').value,
+                op: document.getElementById('tr-op').value,
+                newOp: document.getElementById('tr-new-op').value,
+                date: document.getElementById('tr-date').value
+            };
+            if (!d.origin && !d.cart.length && !d.note) delete all[draftKey]; else all[draftKey] = d;
+            try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(all)); } catch (e) {}
+        }
+        function clearDraft() {
+            const all = readDrafts(); delete all[draftKey];
+            try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(all)); } catch (e) {}
+        }
+
+        let trLockedOp = null;
         function openTransfer(opId, fixed) {
-            cart = [];
             const lock = !!(fixed && opId && getF(opId));
+            trLockedOp = lock ? opId : null;
+            draftKey = lock ? 'op:' + opId : 'general';
+            const d = readDrafts()[draftKey] || null;
+            cart = d ? (d.cart || []).filter(c => tools.some(t => t.id === c.toolId)) : [];
             document.getElementById('tr-op-box').hidden = lock;
             document.getElementById('tr-op-fixed').hidden = !lock;
-            document.getElementById('tr-op-name').textContent = lock ? getF(opId).name : '';
+            document.getElementById('tr-op-name').textContent = lock ? getF(opId).name + (getF(opId).description ? ' · ' + getF(opId).description : '') : '';
             document.getElementById('tr-title').innerHTML = lock
                 ? '<i class="fa-solid fa-plus" style="color:var(--oro)"></i> Agregar herramientas'
                 : '<i class="fa-solid fa-truck" style="color:var(--oro)"></i> Traslado de equipo';
             document.getElementById('tr-confirm').innerHTML = `<i class="fa-solid fa-circle-check"></i> ${lock ? 'Agregar al operario' : 'Confirmar traslado'}`;
-            document.getElementById('tr-origin').value = '';
+            document.getElementById('tr-origin').value = d ? (d.origin || '') : '';
             const sel = document.getElementById('tr-op');
             sel.innerHTML = '<option value="" disabled selected>Selecciona el operario</option>' +
                 operators().map(o => `<option value="${o.id}">${esc(o.name)}${o.description ? ' — ' + esc(o.description.slice(0, 50)) : ''}${o.date ? ' (' + fmtDate(o.date) + ')' : ''}</option>`).join('') +
                 '<option value="__new">+ Añadir operario nuevo</option>';
-            sel.value = opId && getF(opId) ? opId : '';
-            document.getElementById('tr-new-op').value = '';
-            document.getElementById('tr-new-box').hidden = true;
-            document.getElementById('tr-date').value = lock ? (getF(opId).date || todayStr()) : todayStr();
+            const opDraft = d && !lock && d.op && (d.op === '__new' || getF(d.op)) ? d.op : '';
+            sel.value = lock ? opId : (opId && getF(opId) ? opId : opDraft);
+            document.getElementById('tr-new-op').value = d && !lock ? (d.newOp || '') : '';
+            document.getElementById('tr-new-box').hidden = sel.value !== '__new';
+            document.getElementById('tr-date').value = lock ? (getF(opId).date || todayStr()) : (d && d.date ? d.date : todayStr());
             document.getElementById('tr-date-box').hidden = lock;
-            document.getElementById('tr-note').value = '';
+            document.getElementById('tr-note').value = d ? (d.note || '') : '';
             document.getElementById('tr-search').value = '';
             renderTransfer();
             showModal('tr-modal');
         }
-        function closeTransfer() { hideModal('tr-modal'); }
+        function closeTransfer() { if (document.getElementById('tr-modal').classList.contains('abierto')) saveDraft(); hideModal('tr-modal'); }
         function onTransferOp() {
             const isNew = document.getElementById('tr-op').value === '__new';
             document.getElementById('tr-new-box').hidden = !isNew;
             if (isNew) document.getElementById('tr-new-op').focus();
+            saveDraft(); renderTransfer();
         }
-        function onTransferOrigin() { cart = []; renderTransfer(); }
+        let lastOrigin = '';
+        async function onTransferOrigin() {
+            const sel = document.getElementById('tr-origin');
+            if (cart.length && !(await uiConfirm('Al cambiar de bodega se quitan las herramientas que ya agregaste. ¿Continuar?'))) {
+                sel.value = lastOrigin; return;
+            }
+            cart = [];
+            saveDraft(); renderTransfer();
+        }
 
         // Fecha anterior a hoy = registro histórico: no toca el inventario y se puede poner cualquier cantidad
         const isHistoric = () => { const d = document.getElementById('tr-date').value; return !!d && d < todayStr(); };
+        // Herramientas que el operario elegido ya tiene en su carpeta (pendientes de entrega)
+        function folderHas(toolId) {
+            const op = trLockedOp || document.getElementById('tr-op').value;
+            if (!op || op === '__new') return 0;
+            return records.filter(r => r.folderId === op && r.toolId === toolId && !r.delivery).reduce((s, r) => s + r.qty, 0);
+        }
 
         function renderTransfer() {
             const origin = document.getElementById('tr-origin').value;
+            lastOrigin = origin;
             const hist = isHistoric();
             const modeBox = document.getElementById('tr-mode');
             modeBox.className = 'aviso' + (hist ? ' hist' : '');
@@ -1927,16 +1977,20 @@
                 const avail = tools.filter(t => t.company === origin && (!q || norm([t.code, t.name, t.description, t.brand, t.model].join(' ')).includes(q))).slice(0, 60);
                 list.innerHTML = avail.map(t => {
                     const enCarrito = (cart.find(c => c.toolId === t.id) || {}).qty || 0;
+                    const enCarpeta = folderHas(t.id);
                     const libre = t.quantity - enCarrito;
                     const agotada = !hist && libre < 1;
-                    return `<div class="fila-picker ${agotada ? 'agotada' : ''}">
+                    return `<div class="fila-picker ${agotada ? 'agotada' : ''} ${enCarrito ? 'ya-agregada' : ''}">
                         <img class="foto" src="${esc(t.photo || DEFAULT_IMAGE)}" alt="${esc(t.name)}" onclick="openImageModal(${t.id})" onerror="this.onerror=null;this.src=DEFAULT_IMAGE">
-                        <div><span class="codigo">${esc(t.code)}</span><br><strong>${esc(t.name)}</strong>
+                        <div><span class="codigo">${esc(t.code)}</span>
+                            ${enCarrito ? `<span class="marca-ya"><i class="fa-solid fa-circle-check"></i> Ya agregada: ${enCarrito}</span>` : ''}
+                            ${enCarpeta ? `<span class="marca-carpeta">Ya en esta carpeta: ${enCarpeta}</span>` : ''}
+                            <br><strong>${esc(t.name)}</strong>
                             ${brandModelLine(t)}
                             ${t.description ? `<span class="desc" title="${esc(t.description)}">${esc(t.description)}</span>` : ''}
-                            <span class="sub">${hist ? `En inventario: ${t.quantity}` : `Disponibles: ${libre}`}${enCarrito ? ` (${enCarrito} ya en el traslado)` : ''}</span></div>
+                            <span class="sub">${hist ? `En inventario: ${t.quantity}` : `Disponibles: ${libre}`}</span></div>
                         <input type="number" class="campo" id="tr-q-${t.id}" min="1" ${hist ? '' : `max="${Math.max(libre, 1)}"`} value="1" ${agotada ? 'disabled' : ''} aria-label="Cantidad">
-                        <button type="button" class="btn btn-primario" onclick="addToCart(${t.id})" ${agotada ? 'disabled' : ''}>${agotada ? 'Agotada' : 'Agregar'}</button>
+                        <button type="button" class="btn btn-primario" onclick="addToCart(${t.id})" ${agotada ? 'disabled' : ''}>${agotada ? 'Agotada' : enCarrito ? 'Sumar' : 'Agregar'}</button>
                     </div>`;
                 }).join('') || '<p class="conteo">No hay herramientas con esa búsqueda en esta bodega.</p>';
             }
@@ -1947,6 +2001,7 @@
                     <span class="nowrap"><b>${c.qty}</b> <button type="button" class="cerrar" style="font-size:15px" onclick="removeFromCart(${c.toolId})" aria-label="Quitar"><i class="fa-solid fa-xmark"></i></button></span></div>`;
             }).join('') : '<p class="conteo" style="margin:0">Todavía no agregaste herramientas.</p>';
             document.getElementById('tr-total').textContent = cart.length ? `${cart.length} herramientas · ${cart.reduce((s, c) => s + c.qty, 0)} unidades` : '';
+            document.getElementById('tr-clear').hidden = !cart.length;
         }
 
         async function addToCart(toolId) {
@@ -1956,10 +2011,18 @@
             if (!(qty >= 1)) { await uiAlert('Escribe una cantidad de 1 en adelante.'); return; }
             if (!isHistoric() && qty + ya > t.quantity) { await uiAlert(`Solo hay ${t.quantity - ya} disponibles de ${t.name}.`); return; }
             const item = cart.find(c => c.toolId === toolId);
-            if (item) item.qty += qty; else cart.push({ toolId, qty });
+            if (item) item.qty += qty; else cart.push({ toolId, qty }); // si ya estaba, solo se suma
+            saveDraft();
             renderTransfer();
         }
-        function removeFromCart(toolId) { cart = cart.filter(c => c.toolId !== toolId); renderTransfer(); }
+        function removeFromCart(toolId) { cart = cart.filter(c => c.toolId !== toolId); saveDraft(); renderTransfer(); }
+        async function clearCart() {
+            if (!cart.length) return;
+            if (!(await uiConfirm(`¿Eliminar las ${cart.length} herramientas agregadas a este traslado?`))) return;
+            cart = [];
+            saveDraft();
+            renderTransfer();
+        }
 
         async function confirmTransfer() {
             const origin = document.getElementById('tr-origin').value;
@@ -1968,12 +2031,6 @@
             const note = document.getElementById('tr-note').value.trim().toUpperCase();
             if (!origin) { await uiAlert('Elige la bodega de donde sale el equipo.'); return; }
             if (!opId) { await uiAlert('Elige el operario que recibe el equipo.'); return; }
-            if (opId === '__new') {
-                const name = document.getElementById('tr-new-op').value.trim().toUpperCase();
-                if (!name) { await uiAlert('Escribe el nombre del operario nuevo.'); return; }
-                opId = uid('o');
-                folders.push({ id: opId, type: 'operator', name, description: '', transport: '', date: document.getElementById('tr-date').value || '' });
-            }
             if (!date) { await uiAlert('Indica la fecha del traslado.'); return; }
             if (!cart.length) { await uiAlert('Agrega al menos una herramienta al traslado.'); return; }
             const hist = date < todayStr();
@@ -1981,14 +2038,29 @@
                 const t = tools.find(x => x.id === c.toolId);
                 if (!t || (!hist && c.qty > t.quantity)) { await uiAlert(`Ya no hay suficientes unidades de ${t ? t.name : 'una herramienta'}. Revisa el traslado.`); renderTransfer(); return; }
             }
+            if (opId === '__new') {
+                const name = document.getElementById('tr-new-op').value.trim().toUpperCase();
+                if (!name) { await uiAlert('Escribe el nombre del operario nuevo.'); return; }
+                opId = uid('o');
+                folders.push({ id: opId, type: 'operator', name, description: '', transport: '', date: date || '' });
+            }
             cart.forEach(c => {
                 const t = tools.find(x => x.id === c.toolId);
                 if (!hist) t.quantity -= c.qty;
-                records.push({ id: uid('r'), folderId: opId, toolId: t.id, code: t.code, name: t.name, qty: c.qty, note, origin,
-                               date, delivery: '', deducted: !hist, returned: false, at: new Date().toISOString() });
+                // Si la herramienta ya estaba en la carpeta (pendiente de entrega), solo se suma la cantidad
+                const prev = records.find(r => r.folderId === opId && r.toolId === t.id && !r.delivery && !r.returned
+                                             && r.deducted === !hist && (r.origin || origin) === origin);
+                if (prev) {
+                    prev.qty += c.qty;
+                    if (note && !(prev.note || '').includes(note)) prev.note = [prev.note, note].filter(Boolean).join(' · ');
+                } else {
+                    records.push({ id: uid('r'), folderId: opId, toolId: t.id, code: t.code, name: t.name, qty: c.qty, note, origin,
+                                   date, delivery: '', deducted: !hist, returned: false, at: new Date().toISOString() });
+                }
             });
             cart = [];
-            closeTransfer();
+            clearDraft();
+            hideModal('tr-modal');
             currentOp = opId;
             saveAndRender();
             window.scrollTo({ top: 0 });
