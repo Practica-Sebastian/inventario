@@ -438,6 +438,13 @@
         .op-nueva { border-style: dashed; color: var(--azul); }
         .op-nueva > i { color: var(--azul) !important; }
         input.campo-fijo[readonly] { color: var(--oro); font-weight: 700; border-style: dashed; }
+        .op-cab { cursor: default; grid-template-columns: auto minmax(180px, 320px) auto; padding-right: 44px; }
+        .op-cab-toggle { display: flex; align-items: center; gap: 14px; cursor: pointer; min-width: 0; }
+        .op-cab-toggle > i { font-size: 22px; color: var(--oro); }
+        .op-cab { grid-template-columns: 1fr minmax(180px, 320px) auto; }
+        .op-buscar { height: 38px; font-size: 14px; }
+        .op-cab .flecha-grupo { cursor: pointer; }
+        @media (max-width: 700px) { .op-cab { grid-template-columns: 1fr; } .op-cab .op-cifras { display: none; } }
     </style>
 </head>
 <body>
@@ -1705,6 +1712,14 @@
         }
 
         const openGroups = new Set();
+        const groupSearch = new Map(); // texto buscado dentro de cada operario
+        function onGroupSearch(inp) {
+            const gid = inp.dataset.g, pos = inp.selectionStart;
+            groupSearch.set(gid, inp.value);
+            renderOpList();
+            const again = [...document.querySelectorAll('.op-buscar')].find(x => x.dataset.g === gid);
+            if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (e) {} }
+        }
         function toggleGroup(name) { openGroups.has(name) ? openGroups.delete(name) : openGroups.add(name); renderOpList(); }
         const opStats = o => {
             const recs = records.filter(r => r.folderId === o.id);
@@ -1751,21 +1766,38 @@
                 // Agrupar por fecha dentro del operario
                 const byDate = new Map();
                 list.forEach(o => { const k = o.date || ''; if (!byDate.has(k)) byDate.set(k, []); byDate.get(k).push(o); });
+                // Buscador propio del operario: filtra sus carpetas por nombre o fecha
+                const gq = norm(groupSearch.get(gid) || '');
+                const matchFolder = o => !gq || norm([o.description, o.transport, o.date, fmtDate(o.date),
+                    o.date ? o.date.split('-').reverse().join('/') : ''].join(' ')).includes(gq);
+                [...byDate].forEach(([k, fl]) => { const f = fl.filter(matchFolder); f.length ? byDate.set(k, f) : byDate.delete(k); });
                 const inner = [...byDate].map(([date, fl]) => {
                     if (fl.length === 1) return leaf(fl[0], false);
                     const did = 'nd:' + name + '|' + date;
-                    const ab2 = openGroups.has(did) || !!q;
+                    const ab2 = openGroups.has(did) || !!q || !!gq;
                     return `<div class="op-grupo ${ab2 ? 'abierto' : ''}">
                         ${toggleBtn(did, ab2, 'fa-calendar-day', date ? fmtDate(date) : 'Sin fecha', `${fl.length} carpetas en esta fecha · toca para ${ab2 ? 'ocultarlas' : 'verlas'}`, sumStats(fl))}
                         ${ab2 ? `<div class="op-sub">${fl.map(o => leaf(o, false)).join('')}</div>` : ''}
                     </div>`;
                 }).join('');
+                const st = sumStats(list);
+                const header = abierto ? `
+                    <div class="op-item op-cab">
+                        <span class="op-cab-toggle" role="button" tabindex="0" data-n="${esc(gid)}" onclick="toggleGroup(this.dataset.n)" aria-expanded="true">
+                            <i class="fa-solid fa-folder-open"></i>
+                            <span class="op-texto"><span class="t">${esc(name)}</span><span class="d">${list.length} ${list.length === 1 ? 'carpeta' : 'carpetas'} · toca para ocultarlas</span></span>
+                        </span>
+                        <input type="search" class="campo op-buscar" data-g="${esc(gid)}" placeholder="Buscar carpeta por nombre o fecha..."
+                               value="${esc(groupSearch.get(gid) || '')}" oninput="onGroupSearch(this)" aria-label="Buscar carpetas de ${esc(name)}">
+                        ${cifras(st)}
+                        <span class="editar flecha-grupo" role="button" data-n="${esc(gid)}" onclick="toggleGroup(this.dataset.n)"><i class="fa-solid fa-chevron-down"></i></span>
+                    </div>` : toggleBtn(gid, abierto, 'fa-folder', esc(name), `${list.length} ${list.length === 1 ? 'carpeta' : 'carpetas'} · toca para verlas`, st);
                 return `<div class="op-grupo ${abierto ? 'abierto' : ''}">
-                    ${toggleBtn(gid, abierto, abierto ? 'fa-folder-open' : 'fa-folder', esc(name), `${list.length} ${list.length === 1 ? 'carpeta' : 'carpetas'} · toca para ${abierto ? 'ocultarlas' : 'verlas'}`, sumStats(list))}
+                    ${header}
                     ${abierto ? `<div class="op-sub">
                         <button class="op-item op-hija op-nueva" data-n="${esc(name)}" onclick="openOpModal(null, this.dataset.n)">
                             <i class="fa-solid fa-folder-plus"></i><span class="op-texto"><span class="t">Agregar carpeta</span><span class="d">Nueva carpeta para ${esc(name)}</span></span>
-                        </button>${inner}</div>` : ''}
+                        </button>${inner || `<p class="conteo" style="margin:4px 0">Ninguna carpeta coincide con "${esc(groupSearch.get(gid) || '')}".</p>`}</div>` : ''}
                 </div>`;
             }).join('');
             document.getElementById('op-lista').innerHTML = html ||
@@ -2021,7 +2053,7 @@
         // ----- Inventario en mayúsculas mientras se escribe -----
         // Campos que siempre se escriben en mayúscula (inventario y registros)
         const UPPER_FIELDS = '#tool-form input[type="text"]:not(#tool-photo-url), #tool-form textarea, #search-input, ' +
-            '#op-name, #op-description, #op-transport, #op-search, #tr-search, #tr-new-op, #tr-note, #dlg-input:not([type="date"])';
+            '#op-name, #op-description, #op-transport, #op-search, .op-buscar, #tr-search, #tr-new-op, #tr-note, #dlg-input:not([type="date"])';
         function upperOnInput(e) {
             const el = e.target;
             if (!el.matches(UPPER_FIELDS)) return;
