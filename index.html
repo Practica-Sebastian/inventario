@@ -455,6 +455,8 @@
         .nav-btn.activa .insignia { background: #fff; color: var(--azul); }
         .nueva { display: inline-block; padding: 0 7px; border-radius: 999px; background: var(--azul); color: #fff; font-size: 10.5px; font-weight: 800; }
         .lam-barra { grid-template-columns: 1fr auto auto auto; }
+        .lam-resumen { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-bottom: 12px; }
+        .lam-resumen strong { font-size: 18px; }
         @media (max-width: 700px) { .lam-barra { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -1633,7 +1635,7 @@
             'Equipos MARC': { title: 'Bodega Taller MARC · Inventario de Herramientas', btn: 'nav-taller' },
             'Instalaciones': { title: 'Bodega Instalaciones · Inventario de Herramientas', btn: 'nav-inst' },
             'operarios': { title: 'Operarios · Traslados de Equipo', btn: 'nav-op' },
-            'lamina': { title: 'Lámina · Registros de Control de lámina', btn: 'nav-lam' }
+            'lamina': { title: 'Lámina · Pedidos del taller', btn: 'nav-lam' }
         };
         function goSection(key) {
             if (key === 'operarios') { view = 'operarios'; currentOp = null; }
@@ -2841,78 +2843,144 @@
             pendingImport = null;
         }
 
-        // =================== Lámina: registros de la app "Control de lámina" ===================
-        // La app de lámina envía cada movimiento (entrada de bobina o uso de lámina) al Worker,
-        // que lo guarda en la colección "lamina". Aquí se ven, se buscan y se marcan como atendidos.
+        // =================== Lámina: pedidos y registros de la app "Control de lámina" ===================
+        // Control de lámina envía al Worker (colección "lamina"):
+        //   · pedidos (tipo "pedido"): cuánta lámina necesita el taller → aquí se aprueban, despachan o rechazan
+        //   · movimientos (entrada de bobina / uso de lámina): registro informativo → aquí se marcan como atendidos
         const LAM_VISTO = 'bodega_lamina_vista';
-        const lamFiltro = { estado: 'pendientes', tipo: '', q: '' };
-        const lamPend = r => (r.estado || 'pendiente') === 'pendiente';
+        const lamFiltro = { sub: 'pedidos', estado: 'abiertos', tipo: '', q: '' };
+        const esPedido = r => r.tipo === 'pedido';
+        const pedAbierto = r => ['pendiente', 'aprobado', ''].includes(r.estado || 'pendiente');
+        const movPend = r => (r.estado || 'pendiente') === 'pendiente';
         const lamOrden = r => String(r.registrado || r.recibido || r.fecha || '');
         const lamVista = () => { try { return localStorage.getItem(LAM_VISTO) || ''; } catch (e) { return ''; } };
+        const PED_EST = { pendiente: ['Pendiente', 'e-prestada'], aprobado: ['Aprobado', 'e-bodega'], despachado: ['Despachado', 'e-nueva'], rechazado: ['Rechazado', 'e-mala'] };
 
         function renderLamina() {
-            const pend = lamina.filter(lamPend).length;
+            const pedidos = lamina.filter(esPedido), movs = lamina.filter(r => !esPedido(r));
+            const abiertos = pedidos.filter(pedAbierto).length, movsPend = movs.filter(movPend).length;
             const ins = document.getElementById('lam-insignia');
-            if (ins) { ins.hidden = !pend; ins.textContent = pend; }
+            if (ins) { ins.hidden = !abiertos; ins.textContent = abiertos; ins.title = abiertos + ' pedidos de lámina por atender'; }
             const box = document.getElementById('view-lamina');
             if (!box || view !== 'lamina') return;
-            const q = norm(lamFiltro.q);
-            const visto = lamVista();
-            const lista = lamina
-                .filter(r => lamFiltro.estado === 'todas' || (lamFiltro.estado === 'pendientes' ? lamPend(r) : !lamPend(r)))
-                .filter(r => !lamFiltro.tipo || r.tipo === lamFiltro.tipo)
-                .filter(r => !q || norm([r.item, r.calibre, r.proyecto, r.subtipo, r.usuario, r.nota].join(' ')).includes(q))
-                .sort((a, b) => lamOrden(b).localeCompare(lamOrden(a)));
-            const metros = lista.reduce((s, r) => s + (Number(r.metros) || 0), 0);
-            const kg = lista.reduce((s, r) => s + (Number(r.cantidad) || 0), 0);
             const n = x => Number(x || 0).toLocaleString('es-CR', { maximumFractionDigits: 1 });
+            const q = norm(lamFiltro.q), visto = lamVista();
             const enfocado = document.activeElement && document.activeElement.id === 'lam-q';
-            box.innerHTML = `
-                <div class="op-barra lam-barra">
-                    <input type="search" id="lam-q" class="campo" placeholder="Buscar por proyecto, calibre o usuario..." value="${esc(lamFiltro.q)}"
-                           oninput="lamFiltro.q=this.value; renderLamina()">
-                    <select class="campo" onchange="lamFiltro.estado=this.value; renderLamina()">
-                        <option value="pendientes" ${lamFiltro.estado === 'pendientes' ? 'selected' : ''}>Pendientes (${pend})</option>
-                        <option value="atendidas" ${lamFiltro.estado === 'atendidas' ? 'selected' : ''}>Atendidas</option>
-                        <option value="todas" ${lamFiltro.estado === 'todas' ? 'selected' : ''}>Todas (${lamina.length})</option>
-                    </select>
-                    <select class="campo" onchange="lamFiltro.tipo=this.value; renderLamina()">
-                        <option value="">Usos y entradas</option>
-                        <option value="salida" ${lamFiltro.tipo === 'salida' ? 'selected' : ''}>Usos de lámina</option>
-                        <option value="entrada" ${lamFiltro.tipo === 'entrada' ? 'selected' : ''}>Entradas de bobina</option>
-                    </select>
-                    ${pend ? `<button class="btn btn-entregar" onclick="lamAtenderTodas()"><i class="fa-solid fa-circle-check"></i> Atender todas</button>` : ''}
+            const nueva = r => (esPedido(r) ? pedAbierto(r) : movPend(r)) && visto && lamOrden(r) > visto ? ' <span class="nueva">NUEVA</span>' : '';
+            const buscar = r => !q || norm([r.item, r.calibre, r.proyecto, r.subtipo, r.usuario, r.nota, r.respuesta].join(' ')).includes(q);
+            let html = `<div class="pestanas" style="margin-bottom:14px">
+                    <button class="pestana ${lamFiltro.sub === 'pedidos' ? 'activa' : ''}" onclick="lamFiltro.sub='pedidos'; lamFiltro.estado='abiertos'; renderLamina()">Pedidos de lámina${abiertos ? ` (${abiertos})` : ''}</button>
+                    <button class="pestana ${lamFiltro.sub === 'movs' ? 'activa' : ''}" onclick="lamFiltro.sub='movs'; lamFiltro.estado='abiertos'; renderLamina()">Movimientos del taller${movsPend ? ` (${movsPend})` : ''}</button>
                 </div>
-                ${!net.on ? '<p class="aviso" style="margin:0 0 12px">La app está en modo local. Los registros de Control de lámina llegan solo cuando está conectada al servidor (Worker).</p>' : ''}
-                <div class="tabla-envoltura"><table style="min-width:960px"><thead><tr>
-                    <th>Fecha</th><th>Tipo</th><th>Lámina</th><th>Proyecto</th><th style="text-align:right">Metros</th><th style="text-align:right">Kg</th>
-                    <th>Registró</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
-                ${lista.map(r => {
-                    const nueva = lamPend(r) && visto && lamOrden(r) > visto;
-                    return `<tr>
-                        <td class="nowrap">${r.fecha ? fmtDate(r.fecha) : '—'}${nueva ? ' <span class="nueva">NUEVA</span>' : ''}</td>
+                ${!net.on ? '<p class="aviso" style="margin:0 0 12px">La app está en modo local. Lo que envía Control de lámina llega solo cuando está conectada al servidor (Worker).</p>' : ''}`;
+
+            if (lamFiltro.sub === 'pedidos') {
+                const f = lamFiltro.estado;
+                const lista = pedidos.filter(r => f === 'todos' || (f === 'abiertos' ? pedAbierto(r) : (r.estado || 'pendiente') === f)).filter(buscar)
+                    .sort((a, b) => (b.prioridad === 'Urgente') - (a.prioridad === 'Urgente') || String(a.requerido || '').localeCompare(String(b.requerido || '')) || lamOrden(b).localeCompare(lamOrden(a)));
+                // Total pedido por calibre (lo que bodega tiene que preparar)
+                const porCal = {};
+                lista.filter(pedAbierto).forEach(r => { const k = r.calibre || '?'; porCal[k] = porCal[k] || { m: 0, kg: 0, lam: 0 };
+                    if (r.unidad_pedida === 'láminas') porCal[k].lam += Number(r.cantidad_pedida) || 0;
+                    else { porCal[k].m += Number(r.metros) || 0; porCal[k].kg += Number(r.cantidad) || 0; } });
+                html += `<div class="op-barra lam-barra">
+                        <input type="search" id="lam-q" class="campo" placeholder="Buscar por proyecto, calibre o nota..." value="${esc(lamFiltro.q)}" oninput="lamFiltro.q=this.value; renderLamina()">
+                        <select class="campo" onchange="lamFiltro.estado=this.value; renderLamina()">
+                            ${[['abiertos', `Por atender (${abiertos})`], ['pendiente', 'Pendientes'], ['aprobado', 'Aprobados'], ['despachado', 'Despachados'], ['rechazado', 'Rechazados'], ['todos', `Todos (${pedidos.length})`]]
+                                .map(([v, l]) => `<option value="${v}" ${f === v ? 'selected' : ''}>${l}</option>`).join('')}
+                        </select><span></span><span></span>
+                    </div>
+                    ${Object.keys(porCal).length ? `<div class="lam-resumen">${Object.entries(porCal).sort((a, b) => b[0] - a[0]).map(([c, v]) =>
+                        `<div class="tarjeta metrica"><span>Calibre ${esc(c)} · por atender</span><strong>${v.m ? n(v.m) + ' m' : ''}${v.m && v.lam ? ' + ' : ''}${v.lam ? n(v.lam) + ' lám.' : ''}</strong>${v.kg ? `<span class="sub">≈ ${n(v.kg)} kg</span>` : ''}</div>`).join('')}</div>` : ''}
+                    <div class="tabla-envoltura"><table style="min-width:1080px"><thead><tr>
+                        <th>Pedido</th><th>Para</th><th>Lámina</th><th style="text-align:right">Cantidad</th><th>Proyecto</th><th>Pidió</th><th>Nota</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
+                    ${lista.map(r => {
+                        const st = PED_EST[r.estado || 'pendiente'] || [r.estado, ''];
+                        const id = esc(r.id);
+                        const tarde = pedAbierto(r) && r.requerido && r.requerido < todayStr();
+                        return `<tr>
+                            <td class="nowrap">${r.fecha ? fmtDate(r.fecha) : '—'}${nueva(r)}${r.prioridad === 'Urgente' ? '<br><span class="estado e-mala">Urgente</span>' : ''}</td>
+                            <td class="nowrap ${tarde ? 'c-rojo' : ''}">${r.requerido ? fmtDate(r.requerido) : '—'}${tarde ? '<span class="sub">Atrasado</span>' : ''}</td>
+                            <td><strong>Calibre ${esc(r.calibre || '')}</strong>${r.kg_por_metro ? `<span class="modelo">${n(r.kg_por_metro)} kg/m</span>` : ''}</td>
+                            <td class="cantidad">${n(r.cantidad_pedida)} ${esc(r.unidad_pedida || '')}${r.unidad_pedida === 'metros' && r.cantidad ? `<span class="sub">≈ ${n(r.cantidad)} kg</span>` : r.unidad_pedida === 'kg' && r.metros ? `<span class="sub">≈ ${n(r.metros)} m</span>` : ''}</td>
+                            <td>${esc(r.proyecto || '—')}</td>
+                            <td>${esc(r.usuario || '—')}</td>
+                            <td class="suave">${esc(r.nota || '')}${r.respuesta ? `<span class="nota-registro">Bodega: ${esc(r.respuesta)}</span>` : ''}</td>
+                            <td><span class="estado ${st[1]}">${st[0]}</span>${r.despachadoEn ? `<span class="sub">${fmtDate(r.despachadoEn)}</span>` : ''}</td>
+                            <td class="nowrap">${pedAbierto(r) ? `
+                                ${(r.estado || 'pendiente') === 'pendiente' ? `<button class="btn btn-mini" onclick="pedAccion('${id}','aprobado')">Aprobar</button>` : ''}
+                                <button class="btn btn-mini btn-entregar" onclick="pedAccion('${id}','despachado')"><i class="fa-solid fa-truck"></i> Despachar</button>
+                                <button class="btn btn-mini btn-peligro" onclick="pedAccion('${id}','rechazado')">Rechazar</button>`
+                              : `<button class="btn btn-mini" onclick="pedAccion('${id}','pendiente')"><i class="fa-solid fa-rotate-left"></i> Reabrir</button>`}</td>
+                        </tr>`;
+                    }).join('') || `<tr><td colspan="9" class="vacio">${pedidos.length ? 'Ningún pedido coincide con los filtros.' : 'Todavía no han llegado pedidos de lámina.'}</td></tr>`}
+                    </tbody></table></div>
+                    <p class="conteo">${lista.length} pedidos</p>`;
+            } else {
+                const lista = movs.filter(r => lamFiltro.estado === 'todos' || (lamFiltro.estado === 'atendidas' ? !movPend(r) : movPend(r)))
+                    .filter(r => !lamFiltro.tipo || r.tipo === lamFiltro.tipo).filter(buscar)
+                    .sort((a, b) => lamOrden(b).localeCompare(lamOrden(a)));
+                html += `<div class="op-barra lam-barra">
+                        <input type="search" id="lam-q" class="campo" placeholder="Buscar por proyecto, calibre o usuario..." value="${esc(lamFiltro.q)}" oninput="lamFiltro.q=this.value; renderLamina()">
+                        <select class="campo" onchange="lamFiltro.estado=this.value; renderLamina()">
+                            <option value="abiertos" ${lamFiltro.estado === 'abiertos' ? 'selected' : ''}>Pendientes (${movsPend})</option>
+                            <option value="atendidas" ${lamFiltro.estado === 'atendidas' ? 'selected' : ''}>Atendidos</option>
+                            <option value="todos" ${lamFiltro.estado === 'todos' ? 'selected' : ''}>Todos (${movs.length})</option>
+                        </select>
+                        <select class="campo" onchange="lamFiltro.tipo=this.value; renderLamina()">
+                            <option value="">Usos y entradas</option>
+                            <option value="salida" ${lamFiltro.tipo === 'salida' ? 'selected' : ''}>Usos de lámina</option>
+                            <option value="entrada" ${lamFiltro.tipo === 'entrada' ? 'selected' : ''}>Entradas de bobina</option>
+                        </select>
+                        ${movsPend ? `<button class="btn btn-entregar" onclick="lamAtenderTodas()"><i class="fa-solid fa-circle-check"></i> Atender todos</button>` : '<span></span>'}
+                    </div>
+                    <div class="tabla-envoltura"><table style="min-width:960px"><thead><tr>
+                        <th>Fecha</th><th>Tipo</th><th>Lámina</th><th>Proyecto</th><th style="text-align:right">Metros</th><th style="text-align:right">Kg</th>
+                        <th>Registró</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
+                    ${lista.map(r => `<tr>
+                        <td class="nowrap">${r.fecha ? fmtDate(r.fecha) : '—'}${nueva(r)}</td>
                         <td>${r.tipo === 'entrada' ? '<span class="estado e-nueva">Entrada de bobina</span>' : `<span class="estado e-prestada">${esc(r.subtipo || 'Uso')}</span>`}</td>
                         <td><strong>${esc(r.item || ('Calibre ' + (r.calibre || '')))}</strong>${r.kg_por_metro ? `<span class="modelo">${n(r.kg_por_metro)} kg/m</span>` : ''}</td>
                         <td>${r.proyecto ? esc(r.proyecto) : '<span class="suave">—</span>'}</td>
                         <td class="cantidad">${n(r.metros)}</td>
                         <td class="cantidad">${n(r.cantidad)}</td>
                         <td>${esc(r.usuario || '—')}</td>
-                        <td>${lamPend(r) ? '<span class="estado e-prestada">Pendiente</span>'
-                              : `<span class="estado e-devuelta">Atendida</span>${r.atendidoEn ? `<span class="sub">${fmtDate(r.atendidoEn)}</span>` : ''}`}</td>
-                        <td class="nowrap">${lamPend(r)
-                              ? `<button class="btn btn-mini btn-entregar" onclick="lamAtender('${esc(r.id)}', true)"><i class="fa-solid fa-circle-check"></i> Atender</button>`
-                              : `<button class="btn btn-mini" onclick="lamAtender('${esc(r.id)}', false)"><i class="fa-solid fa-rotate-left"></i> Reabrir</button>`}</td>
-                    </tr>`;
-                }).join('') || `<tr><td colspan="9" class="vacio">${lamina.length ? 'Ningún registro coincide con los filtros.' : 'Todavía no han llegado registros de Control de lámina.'}</td></tr>`}
-                </tbody></table></div>
-                <p class="conteo">${lista.length} registros · ${n(metros)} m · ${n(kg)} kg</p>`;
+                        <td>${movPend(r) ? '<span class="estado e-prestada">Pendiente</span>' : `<span class="estado e-devuelta">Atendido</span>${r.atendidoEn ? `<span class="sub">${fmtDate(r.atendidoEn)}</span>` : ''}`}</td>
+                        <td class="nowrap">${movPend(r)
+                            ? `<button class="btn btn-mini btn-entregar" onclick="lamAtender('${esc(r.id)}', true)"><i class="fa-solid fa-circle-check"></i> Atender</button>`
+                            : `<button class="btn btn-mini" onclick="lamAtender('${esc(r.id)}', false)"><i class="fa-solid fa-rotate-left"></i> Reabrir</button>`}</td>
+                    </tr>`).join('') || `<tr><td colspan="9" class="vacio">${movs.length ? 'Ningún registro coincide con los filtros.' : 'Todavía no han llegado movimientos del taller.'}</td></tr>`}
+                    </tbody></table></div>
+                    <p class="conteo">${lista.length} registros · ${n(lista.reduce((s, r) => s + (Number(r.metros) || 0), 0))} m · ${n(lista.reduce((s, r) => s + (Number(r.cantidad) || 0), 0))} kg</p>`;
+            }
+            box.innerHTML = html;
             if (enfocado) { const i = document.getElementById('lam-q'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
-            // Lo que se ve queda como "visto": lo que llegue después aparece como NUEVA
             clearTimeout(renderLamina.t);
             renderLamina.t = setTimeout(() => {
                 const max = lamina.reduce((m, r) => lamOrden(r) > m ? lamOrden(r) : m, lamVista());
                 try { localStorage.setItem(LAM_VISTO, max); } catch (e) {}
             }, 4000);
+        }
+
+        // Aprobar / despachar / rechazar / reabrir un pedido (el taller lo ve en su app)
+        async function pedAccion(id, estado) {
+            const r = lamina.find(x => String(x.id) === String(id));
+            if (!r) return;
+            if (estado === 'rechazado') {
+                const v = await uiPrompt(`Motivo del rechazo (lo verá el taller):`, r.respuesta || '');
+                if (v === null) return;
+                r.respuesta = v.trim().toUpperCase();
+            } else if (estado === 'despachado') {
+                const v = await uiPrompt(`Despachar ${r.cantidad_pedida} ${r.unidad_pedida || ''} de calibre ${r.calibre} para ${r.proyecto || 'el taller'}.\nNota para el taller (opcional):`, r.respuesta || '');
+                if (v === null) return;
+                r.respuesta = v.trim().toUpperCase();
+                r.despachadoEn = todayStr();
+            } else if (estado === 'pendiente') {
+                r.despachadoEn = '';
+            }
+            r.estado = estado;
+            r.atendidoPor = estado === 'pendiente' ? '' : 'Bodega';
+            saveAndRender();
         }
 
         function lamAtender(id, atendida) {
@@ -2923,8 +2991,8 @@
             saveAndRender();
         }
         async function lamAtenderTodas() {
-            const pend = lamina.filter(lamPend);
-            if (!pend.length || !(await uiConfirm(`¿Marcar como atendidos los ${pend.length} registros pendientes de lámina?`))) return;
+            const pend = lamina.filter(r => !esPedido(r) && movPend(r));
+            if (!pend.length || !(await uiConfirm(`¿Marcar como atendidos los ${pend.length} movimientos pendientes del taller?`))) return;
             pend.forEach(r => { r.estado = 'atendida'; r.atendidoEn = todayStr(); });
             saveAndRender();
         }
