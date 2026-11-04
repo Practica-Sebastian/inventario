@@ -457,7 +457,7 @@
     <div id="doc-modal" class="fondo-modal">
         <div class="tarjeta modal" style="max-width:900px;height:92vh;display:flex;flex-direction:column" role="dialog" aria-modal="true" aria-labelledby="doc-title">
             <div class="modal-cabecera">
-                <h3 id="doc-title">Documento del traslado</h3>
+                <h3 id="doc-title">Solicitud de traslado de herramienta</h3>
                 <button class="cerrar" onclick="closeDoc()" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <iframe id="doc-frame" title="Vista previa del documento" style="flex:1;border:0;background:#525659;width:100%"></iframe>
@@ -2231,7 +2231,7 @@
         })();
 
         // =================== Documento PDF del traslado ===================
-        // Políticas de uso (EJEMPLO: reemplázalas por las oficiales de la empresa)
+        // Políticas herramienta (EJEMPLO: reemplázalas por las oficiales de la empresa)
         const POLITICAS = [
             'El operario es responsable del cuidado, buen uso y custodia de las herramientas recibidas desde este momento hasta su devolución a bodega.',
             'Las herramientas se usan únicamente para labores de la empresa y en el proyecto asignado. No pueden prestarse a terceros ni sacarse para uso personal.',
@@ -2274,7 +2274,7 @@
 
             encabezado();
             doc.setTextColor(...CARBON); doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-            doc.text('COMPROBANTE DE TRASLADO DE HERRAMIENTA', M, y);
+            doc.text('SOLICITUD DE TRASLADO DE HERRAMIENTA', M, y);
             doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...GRIS);
             doc.text('N.º ' + numero, W - M, y, { align: 'right' });
             y += 7;
@@ -2334,8 +2334,8 @@
             // Políticas de uso
             salto(30);
             doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5); doc.setTextColor(...AZUL);
-            doc.text('POLÍTICAS DE USO DE HERRAMIENTA', M, y); y += 2;
-            doc.setDrawColor(...AZUL); doc.setLineWidth(0.5); doc.line(M, y, M + 78, y); y += 6;
+            doc.text('POLÍTICAS HERRAMIENTA', M, y); y += 2;
+            doc.setDrawColor(...AZUL); doc.setLineWidth(0.5); doc.line(M, y, M + 50, y); y += 6;
             doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...CARBON);
             POLITICAS.forEach((txt, i) => {
                 const lines = doc.splitTextToSize(txt, W - 2 * M - 8);
@@ -2346,7 +2346,7 @@
             });
             y += 4;
             doc.setFontSize(8.6); doc.setTextColor(...GRIS);
-            const acepto = doc.splitTextToSize('Con su firma, el operario declara haber recibido las herramientas detalladas en buen estado y acepta las políticas de uso aquí descritas.', W - 2 * M);
+            const acepto = doc.splitTextToSize('Con su firma, el operario declara haber recibido las herramientas detalladas en buen estado y acepta las políticas de herramienta aquí descritas.', W - 2 * M);
             salto(acepto.length * 4 + 32);
             doc.text(acepto, M, y); y += acepto.length * 4 + 22;
 
@@ -2361,7 +2361,7 @@
             doc.text(d.operario, W - M - 6 - fw / 2, y + 10, { align: 'center' });
 
             pie();
-            return { doc, nombre: `Traslado ${d.operario} ${d.fecha}.pdf`.replace(/[\\/:*?"<>|]/g, '-') };
+            return { doc, nombre: `Solicitud de traslado ${d.operario} ${d.fecha}.pdf`.replace(/[\\/:*?"<>|]/g, '-') };
         }
 
         async function openTransferDoc(d) {
