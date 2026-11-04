@@ -462,7 +462,7 @@
             </div>
             <iframe id="doc-frame" title="Vista previa del documento" style="flex:1;border:0;background:#525659;width:100%"></iframe>
             <div class="pie-form" style="padding:12px 18px;margin:0">
-                <span class="suave" style="font-size:12.5px">El traslado ya quedó guardado. Puedes volver a sacar este documento desde la carpeta del operario.</span>
+                <span class="suave" style="font-size:12.5px">El traslado ya quedó guardado.</span>
                 <div class="derecha">
                     <button type="button" class="btn" onclick="printDoc()"><i class="fa-solid fa-print"></i> Imprimir</button>
                     <button type="button" class="btn btn-primario" onclick="downloadDoc()"><i class="fa-solid fa-download"></i> Descargar PDF</button>
@@ -1704,7 +1704,6 @@
                 <div class="botonera">
                     <button class="btn btn-primario" onclick="openTransfer('${o.id}', true)"><i class="fa-solid fa-plus"></i> Agregar herramientas</button>
                     ${recs.some(r => !r.delivery) ? `<button class="btn btn-entregar" onclick="deliverAll('${o.id}')"><i class="fa-solid fa-circle-check"></i> Entregar todas (${recs.filter(r => !r.delivery).length})</button>` : ''}
-                    ${recs.length ? `<button class="btn" onclick="folderDoc('${o.id}')"><i class="fa-solid fa-file-pdf"></i> Documento PDF</button>` : ''}
                     <button class="btn" onclick="openOpModal('${o.id}')"><i class="fa-solid fa-pen"></i> Editar</button>
                 </div></div>`;
             if (!recs.length) {
@@ -2070,6 +2069,7 @@
                 if (!t || (!hist && c.qty > t.quantity)) { await uiAlert(`Ya no hay suficientes unidades de ${t ? t.name : 'una herramienta'}. Revisa el traslado.`); renderTransfer(); return; }
             }
             let opId = trLockedOp;
+            const esAgregar = !!trLockedOp;
             if (!opId) {
                 // Operario elegido por nombre (o nuevo): la carpeta del traslado se crea sola
                 const name = sel === '__new' ? document.getElementById('tr-new-op').value.trim().toUpperCase() : sel.slice(5);
@@ -2102,7 +2102,8 @@
             currentOp = opId;
             saveAndRender();
             window.scrollTo({ top: 0 });
-            // Documento PDF del traslado
+            // Documento PDF: solo en "Traslado Equipo" (no al agregar herramientas dentro de una carpeta)
+            if (esAgregar) return;
             const o = getF(opId);
             openTransferDoc({ operario: o.name, carpeta: o.description || '', fecha: date, origen: origin, nota: note, numero: tid,
                               items: items.map(it => ({ ...it, tool: tools.find(x => x.id === it.toolId) })) });
