@@ -132,9 +132,19 @@
         .botonera { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 
         .filtros {
-            display: grid; grid-template-columns: minmax(200px, 1.6fr) repeat(5, minmax(120px, 1fr)) auto; gap: 12px;
+            display: grid; grid-template-columns: 1fr auto; gap: 12px;
             margin-bottom: 12px;
         }
+        .btn-filtros[aria-expanded="true"] { border-color: var(--azul); color: #fff; }
+        .btn-filtros[aria-expanded="true"] .flecha-menu { transform: rotate(180deg); }
+        .btn-filtros .insignia { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--azul); color: #fff;
+                                 font-size: 11.5px; font-weight: 800; line-height: 18px; text-align: center; }
+        .panel-filtros {
+            grid-column: 1 / -1; display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)) auto; gap: 12px; align-items: end;
+            padding: 14px; border-radius: 12px; border: 1px solid var(--borde-fuerte); background: var(--campo);
+        }
+        .filtro-campo { display: grid; gap: 5px; font-size: 12px; color: var(--texto-suave); }
+        .filtro-campo .campo { background: var(--tarjeta-solida); }
         .campo {
             width: 100%; height: 44px; padding: 0 12px;
             background: var(--campo); color: var(--texto);
@@ -238,9 +248,8 @@
 
         @media (max-width: 1000px) {
             .metricas { grid-template-columns: repeat(3, 1fr); }
-            .filtros { grid-template-columns: 1fr 1fr; }
-            .filtros .busqueda { grid-column: 1 / -1; }
-            .filtros .btn { grid-column: 1 / -1; }
+            .panel-filtros { grid-template-columns: 1fr 1fr; }
+            .panel-filtros .btn { grid-column: 1 / -1; }
         }
         @media (max-width: 600px) {
             .metricas { grid-template-columns: 1fr 1fr; }
@@ -534,54 +543,65 @@
             <div id="view-inventory">
             <div class="filtros">
                 <input type="text" id="search-input" class="campo busqueda" oninput="filterTools()" placeholder="Buscar código, nombre, marca, ubicación o responsable...">
-                <select id="filter-category" class="campo" onchange="filterTools()">
-                    <option value="">Todas las categorías</option>
-                    <option value="Herramienta">Herramienta</option>
-                    <option value="Equipo">Equipo</option>
-                    <option value="Cómputo">Cómputo</option>
-                    <option value="Red">Red</option>
-                    <option value="Impresión">Impresión</option>
-                    <option value="Servidor">Servidor</option>
-                    <option value="Telefonía">Telefonía</option>
-                    <option value="Vehículo">Vehículo</option>
-                    <option value="Mobiliario">Mobiliario</option>
-                    <option value="Licencia">Licencia</option>
-                    <option value="Otro">Otro</option>
-                </select>
-                <select id="filter-rack" class="campo" onchange="filterTools()">
-                    <option value="">Todos los racks</option>
-                    <option value="__none">Sin rack</option>
-                    <option value="Rack 1">Rack 1</option>
-                    <option value="Rack 2">Rack 2</option>
-                    <option value="Rack 3">Rack 3</option>
-                    <option value="Rack 4">Rack 4</option>
-                </select>
-                <select id="filter-shelf" class="campo" onchange="filterTools()">
-                    <option value="">Todos los estantes</option>
-                    <option value="Estante A">Estante A</option>
-                    <option value="Estante B">Estante B</option>
-                    <option value="Estante C">Estante C</option>
-                    <option value="Estante D">Estante D</option>
-                    <option value="Estante E">Estante E</option>
-                    <option value="Estante F">Estante F</option>
-                </select>
-                <select id="filter-photo" class="campo" onchange="filterTools()">
-                    <option value="">Con y sin foto</option>
-                    <option value="sin">Sin foto</option>
-                    <option value="con">Con foto</option>
-                </select>
-                <select id="filter-status" class="campo" onchange="filterTools()">
-                    <option value="">Todos los estados</option>
-                    <option value="__none">Sin estado</option>
-                    <option value="Buena">Buena</option>
-                    <option value="Nueva">Nueva</option>
-                    <option value="Repuesto">Repuesto</option>
-                    <option value="Mala">Mala</option>
-                    <option value="En Uso / Prestada">En uso / Prestada</option>
-                    <option value="Mantenimiento">Mantenimiento</option>
-                    <option value="Dañada">Dañada</option>
-                </select>
-                <button type="button" class="btn" onclick="clearFilters()" title="Limpiar filtros"><i class="fa-solid fa-filter-circle-xmark"></i> Limpiar</button>
+                <button type="button" class="btn btn-filtros" id="btn-filtros" onclick="toggleFiltros()" aria-expanded="false" aria-controls="panel-filtros">
+                    <i class="fa-solid fa-filter"></i> Filtros <span class="insignia" id="filtros-activos" hidden></span>
+                    <svg class="flecha-menu" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+                <div class="panel-filtros" id="panel-filtros" hidden>
+                    <label class="filtro-campo"><span>Categoría</span>
+                    <select id="filter-category" class="campo" onchange="filterTools()">
+                        <option value="">Todas las categorías</option>
+                        <option value="Herramienta">Herramienta</option>
+                        <option value="Equipo">Equipo</option>
+                        <option value="Cómputo">Cómputo</option>
+                        <option value="Red">Red</option>
+                        <option value="Impresión">Impresión</option>
+                        <option value="Servidor">Servidor</option>
+                        <option value="Telefonía">Telefonía</option>
+                        <option value="Vehículo">Vehículo</option>
+                        <option value="Mobiliario">Mobiliario</option>
+                        <option value="Licencia">Licencia</option>
+                        <option value="Otro">Otro</option>
+                    </select></label>
+                    <label class="filtro-campo"><span>Rack</span>
+                    <select id="filter-rack" class="campo" onchange="filterTools()">
+                        <option value="">Todos los racks</option>
+                        <option value="__none">Sin rack</option>
+                        <option value="Rack 1">Rack 1</option>
+                        <option value="Rack 2">Rack 2</option>
+                        <option value="Rack 3">Rack 3</option>
+                        <option value="Rack 4">Rack 4</option>
+                    </select></label>
+                    <label class="filtro-campo"><span>Estante</span>
+                    <select id="filter-shelf" class="campo" onchange="filterTools()">
+                        <option value="">Todos los estantes</option>
+                        <option value="Estante A">Estante A</option>
+                        <option value="Estante B">Estante B</option>
+                        <option value="Estante C">Estante C</option>
+                        <option value="Estante D">Estante D</option>
+                        <option value="Estante E">Estante E</option>
+                        <option value="Estante F">Estante F</option>
+                    </select></label>
+                    <label class="filtro-campo"><span>Foto</span>
+                    <select id="filter-photo" class="campo" onchange="filterTools()">
+                        <option value="">Con y sin foto</option>
+                        <option value="sin">Sin foto</option>
+                        <option value="con">Con foto</option>
+                    </select></label>
+                    <label class="filtro-campo"><span>Estado</span>
+                    <select id="filter-status" class="campo" onchange="filterTools()">
+                        <option value="">Todos los estados</option>
+                        <option value="__none">Sin estado</option>
+                        <option value="Buena">Buena</option>
+                        <option value="Nueva">Nueva</option>
+                        <option value="Repuesto">Repuesto</option>
+                        <option value="Mala">Mala</option>
+                        <option value="En Uso / Prestada">En uso / Prestada</option>
+                        <option value="Mantenimiento">Mantenimiento</option>
+                        <option value="Dañada">Dañada</option>
+                    </select></label>
+                    <button type="button" class="btn" onclick="clearFilters()" title="Limpiar filtros"><i class="fa-solid fa-filter-circle-xmark"></i> Limpiar filtros</button>
+                </div>
             </div>
 
             <div class="tabla-envoltura">
@@ -944,6 +964,7 @@
             'fa-chevron-down': '<path d="M6 9l6 6 6-6"/>',
             'fa-print': '<path d="M6 9V3h12v6M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="7"/>',
             'fa-file-pdf': '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M8 13h1.5a1.5 1.5 0 010 3H8v-3zM8 16v2M13 13v5h1a2 2 0 002-2v-1a2 2 0 00-2-2h-1"/>',
+            'fa-filter': '<path d="M22 3H2l8 9.5V19l4 2v-8.5z"/>',
             'fa-layer-group': '<path d="M12 2l10 5-10 5L2 7zM2 12l10 5 10-5M2 17l10 5 10-5"/>'
         };
         function hydrateIcons(root = document) {
@@ -2591,6 +2612,7 @@
         const hasPhoto = t => !!t.photo && t.photo !== DEFAULT_IMAGE;
 
         function filterTools() {
+            contarFiltros();
             const query = document.getElementById('search-input').value.toLowerCase();
             const category = document.getElementById('filter-category').value;
             const status = document.getElementById('filter-status').value;
@@ -2607,6 +2629,20 @@
                     && (shelf === '' || tool.shelf === shelf)
                     && (photo === '' || (photo === 'sin' ? !hasPhoto(tool) : hasPhoto(tool)));
             }));
+        }
+
+        function toggleFiltros(abrir) {
+            const panel = document.getElementById('panel-filtros'), btn = document.getElementById('btn-filtros');
+            const mostrar = typeof abrir === 'boolean' ? abrir : panel.hidden;
+            panel.hidden = !mostrar;
+            btn.setAttribute('aria-expanded', String(mostrar));
+        }
+        // Cuántos filtros hay elegidos (se muestra en el botón aunque el panel esté cerrado)
+        function contarFiltros() {
+            const n = ['filter-category', 'filter-rack', 'filter-shelf', 'filter-photo', 'filter-status']
+                .filter(id => document.getElementById(id).value !== '').length;
+            const b = document.getElementById('filtros-activos');
+            b.hidden = !n; b.textContent = n;
         }
 
         function clearFilters() {
