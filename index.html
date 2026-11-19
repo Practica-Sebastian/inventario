@@ -2076,8 +2076,18 @@
         // Nombre automático de la carpeta según la fecha del traslado
         function projectName(date) {
             const t = todayStr();
-            const tiempo = date < t ? 'PASADO' : date > t ? 'FUTURO' : 'PRESENTE';
+            const tiempo = date < t ? 'PASADO' : 'ACTUAL'; // hoy o días futuros: PROYECTO ACTUAL
             return `PROYECTO ${tiempo} ${String(date).slice(0, 4)}`;
+        }
+        // Las carpetas que dicen "PRESENTE" pasan a llamarse "ACTUAL"
+        function renamePresente() {
+            let changed = false;
+            folders.forEach(f => {
+                if (f.type === 'operator' && /\bPRESENTE\b/i.test(f.description || '')) {
+                    f.description = f.description.replace(/\bPRESENTE\b/gi, 'ACTUAL'); changed = true;
+                }
+            });
+            return changed;
         }
 
         async function confirmTransfer() {
@@ -3501,8 +3511,8 @@
                         folders = cleanFolders(folders);
                         sortTools();
                         net.ready = true;
-                        saveLocalOnly();
-                        renderAll();
+                        if (renamePresente()) saveAndRender(); // también se corrige en el servidor
+                        else { saveLocalOnly(); renderAll(); }
                     }
                 } else {
                     // Cambios de otras personas (sin pisar lo que este equipo todavía no envía)
@@ -3518,7 +3528,7 @@
                         js === null ? net.last[c.col].delete(id) : net.last[c.col].set(id, js);
                         changed = true;
                     });
-                    if (changed) { sortTools(); saveLocalOnly(); renderAll(); }
+                    if (changed) { sortTools(); if (renamePresente()) saveAndRender(); else { saveLocalOnly(); renderAll(); } }
                 }
                 net.since = Math.max(0, data.now - 5000);
                 if (!net.pushing) setNet('ok');
@@ -3617,6 +3627,7 @@
                 records = SEED_RECORDS.map(r => ({ ...r }));
             }
             migrateFolders();
+            renamePresente();
             try {
                 if (!fresh && localStorage.getItem('bodega_separar_v1') !== '1') unmergeFolders();
                 localStorage.setItem('bodega_separar_v1', '1');
