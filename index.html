@@ -1725,13 +1725,15 @@
                 <div class="botonera">
                     <button class="btn btn-primario" onclick="openTransfer('${o.id}', true)"><i class="fa-solid fa-plus"></i> Agregar herramientas</button>
                     ${recs.some(r => !r.delivery) ? `<button class="btn btn-entregar" onclick="deliverAll('${o.id}')"><i class="fa-solid fa-circle-check"></i> Entregar todas (${recs.filter(r => !r.delivery).length})</button>` : ''}
+                    <button class="btn" onclick="exportFolderReport('${o.id}')"${recs.length ? '' : ' disabled title="La carpeta no tiene herramientas"'}><i class="fa-solid fa-file-pdf"></i> Exportar reporte</button>
                     <button class="btn" onclick="openOpModal('${o.id}')"><i class="fa-solid fa-pen"></i> Editar</button>
                 </div></div>`;
             if (!recs.length) {
                 html += '<div class="vacio"><i class="fa-solid fa-toolbox"></i>Este operario todavía no tiene herramientas. Usa "Agregar herramientas".</div>';
             } else {
-                html += `<div class="tabla-envoltura"><table style="min-width:1040px"><thead><tr>
+                html += `<div class="tabla-envoltura"><table style="min-width:1160px"><thead><tr>
                     <th>Foto</th><th>Código</th><th>Activo / Equipo</th><th>Marca / Modelo</th><th style="text-align:center">Cantidad</th>
+                    <th style="text-align:right">Costo unitario</th><th style="text-align:right">Subtotal</th>
                     <th>Origen</th><th>Fecha de traslado</th><th>Fecha de entrega</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>` +
                     recs.map(r => {
                         const t = tools.find(x => x.id === r.toolId);
@@ -1745,6 +1747,8 @@
                                 ${r.note ? `<span class="nota-registro"><i class="fa-solid fa-note-sticky"></i> ${esc(r.note)}</span>` : ''}</td>
                             <td>${t && t.brand ? esc(t.brand) : '<span class="suave">—</span>'}${t && t.model ? `<span class="modelo">${esc(t.model)}</span>` : ''}</td>
                             <td class="cantidad">${r.qty}</td>
+                            <td class="costo nowrap">${t && Number(t.cost) ? fmtCRC(t.cost) : '<span class="suave">—</span>'}</td>
+                            <td class="costo nowrap">${t && Number(t.cost) ? fmtCRC(Number(t.cost) * r.qty) : '<span class="suave">—</span>'}</td>
                             <td class="nowrap">${r.origin ? esc(BODEGAS[r.origin] || r.origin) : '<span class="suave">—</span>'}</td>
                             <td class="nowrap">${r.date ? fmtDate(r.date) : '<span class="suave">—</span>'}</td>
                             <td class="nowrap">${r.delivery ? fmtDate(r.delivery) : '<span class="suave">Pendiente</span>'}</td>
@@ -1755,7 +1759,8 @@
                                 <button class="btn btn-peligro btn-mini" onclick="removeRecord('${r.id}')" title="Quitar"><i class="fa-solid fa-trash-can"></i></button>
                             </td></tr>`;
                     }).join('') + '</tbody></table></div>';
-                html += `<p class="conteo">${recs.length} traslados · ${recs.reduce((s, r) => s + r.qty, 0)} unidades</p>`;
+                const valorCarpeta = recs.reduce((s, r) => { const t = tools.find(x => x.id === r.toolId); return s + (t ? Number(t.cost) || 0 : 0) * r.qty; }, 0);
+                html += `<p class="conteo">${recs.length} traslados · ${recs.reduce((s, r) => s + r.qty, 0)} unidades · Valor total: <strong>${fmtCRC(valorCarpeta)}</strong></p>`;
             }
             box.innerHTML = html;
         }
@@ -2392,10 +2397,10 @@
             return { doc, nombre: `Solicitud de traslado ${d.operario} ${d.fecha}.pdf`.replace(/[\\/:*?"<>|]/g, '-') };
         }
 
-        async function openTransferDoc(d) {
+        async function openTransferDoc(d, builder = buildTransferPdf) {
             if (!d.items.length) { uiAlert('No hay herramientas para el documento.'); return; }
             try {
-                docActual = await buildTransferPdf(d);
+                docActual = await builder(d);
             } catch (err) {
                 uiAlert('No se pudo crear el PDF (' + (err.message || err) + ').');
                 return;
@@ -2414,6 +2419,145 @@
             catch (e) { window.open(fr.dataset.url, '_blank'); }
         }
         function closeDoc() { hideModal('doc-modal'); }
+
+
+        // ----- Reporte completo de una carpeta de operario -----
+        async function buildFolderReport(d) {
+            const doc = new MiniPDF();
+            const W = 215.9, M = 14, AZUL = [36, 148, 194], CARBON = [41, 36, 32], GRIS = [110, 104, 98], ORO = [212, 168, 69];
+            const crc = n => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const fechaLarga = iso => { if (!iso) return '—'; const [y, m, dd] = iso.split('-').map(Number); return `${dd} de ${MESES_LARGOS[m - 1]} de ${y}`; };
+            const corta = iso => { if (!iso) return ''; const [y, m, dd] = iso.split('-'); return `${dd}/${m}/${y}`; };
+            const hoy = todayStr();
+            const numero = 'RC-' + hoy.replace(/-/g, '') + '-' + String(d.id).slice(-4).toUpperCase();
+            let y = 12;
+            const encabezado = () => {
+                const h1 = 16, w1 = h1 * LOGO_METAL.w / LOGO_METAL.h;
+                doc.addImage(LOGO_METAL.uri, 'JPEG', M, 10, w1, h1);
+                const h2 = 20, w2 = h2 * LOGO_AIRE.w / LOGO_AIRE.h;
+                doc.addImage(LOGO_AIRE.uri, 'JPEG', W - M - w2, 8, w2, h2);
+                doc.setDrawColor(...AZUL); doc.setLineWidth(1.2); doc.line(M, 31, W - M, 31);
+                doc.setDrawColor(...CARBON); doc.setLineWidth(0.4); doc.line(M, 32.6, W - M, 32.6);
+                y = 41;
+            };
+            const salto = alto => { if (y + alto > 264) { doc.addPage(); encabezado(); return true; } return false; };
+
+            encabezado();
+            doc.setTextColor(...CARBON); doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
+            doc.text('REPORTE DE OPERARIO', M, y);
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...GRIS);
+            doc.text('N.º ' + numero, W - M, y, { align: 'right' });
+            y += 7;
+
+            // Datos de la carpeta
+            const origenes = [...new Set(d.recs.map(r => BODEGAS[r.origin] || r.origin).filter(Boolean))];
+            const datos = [['Operario', d.o.name], ['Nombre de carpeta', d.o.description || '—'], ['Fecha de carpeta', fechaLarga(d.o.date)],
+                           ['Transportado por', d.o.transport || '—'], ['Bodega(s) de origen', origenes.join(', ') || '—'], ['Fecha del reporte', fechaLarga(hoy)]];
+            const altoDatos = 6 + datos.length * 6.2;
+            doc.setFillColor(244, 247, 250); doc.setDrawColor(210, 218, 226); doc.setLineWidth(0.3);
+            doc.roundedRect(M, y, W - 2 * M, altoDatos, 2, 2, 'FD');
+            let yy = y + 7;
+            datos.forEach(([k, v]) => {
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...CARBON); doc.text(k + ':', M + 4, yy);
+                doc.setFont('helvetica', 'normal'); doc.text(doc.splitTextToSize(String(v), W - 2 * M - 50)[0], M + 44, yy);
+                yy += 6.2;
+            });
+            y += altoDatos + 5;
+
+            // Resumen en cuadros
+            let total = 0, unidades = 0, poder = 0, entregadas = 0, pendientes = 0;
+            d.recs.forEach(r => {
+                const t = tools.find(x => x.id === r.toolId);
+                total += (t ? Number(t.cost) || 0 : 0) * r.qty; unidades += r.qty;
+                if (r.deducted && !r.returned) poder += r.qty;
+                if (r.delivery) entregadas += r.qty; else pendientes += r.qty;
+            });
+            const cuadros = [['Traslados', String(d.recs.length)], ['Unidades', String(unidades)], ['En su poder', String(poder)],
+                             ['Entregadas', String(entregadas)], ['Valor total (CRC)', crc(total)]];
+            const gap = 3, cw = (W - 2 * M - gap * (cuadros.length - 1)) / cuadros.length;
+            cuadros.forEach(([k, v], i) => {
+                const x = M + i * (cw + gap);
+                doc.setFillColor(255, 255, 255); doc.setDrawColor(210, 218, 226); doc.setLineWidth(0.3);
+                doc.roundedRect(x, y, cw, 15, 1.6, 1.6, 'FD');
+                doc.setFillColor(...(i === 4 ? ORO : AZUL)); doc.rect(x, y + 1.5, 1.1, 12, 'F');
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(...GRIS); doc.text(k, x + 4, y + 5.4);
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5); doc.setTextColor(...CARBON); doc.text(v, x + 4, y + 11.6);
+            });
+            y += 15 + 8;
+
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5); doc.setTextColor(...AZUL);
+            doc.text('HERRAMIENTAS DE LA CARPETA', M, y); y += 2;
+            doc.setDrawColor(...AZUL); doc.setLineWidth(0.5); doc.line(M, y, M + 62, y); y += 4;
+
+            const cols = [['N.º de activo', 28, 'left'], ['Herramienta(s)', 45, 'left'], ['Cant.', 11, 'right'], ['Marca / Modelo', 24, 'left'],
+                          ['Traslado', 18.5, 'left'], ['Entrega', 18.5, 'left'], ['Costo unit. (CRC)', 21, 'right'], ['Subtotal (CRC)', 21.9, 'right']];
+            let enCabecera = false;
+            const cabecera = () => {
+                enCabecera = true;
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(8.2); doc.setTextColor(255, 255, 255);
+                fila(cols.map(c => c[0]), { fill: CARBON });
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(...CARBON);
+                enCabecera = false;
+            };
+            function fila(vals, opts = {}) {
+                const wrapped = vals.map((v, i) => doc.splitTextToSize(String(v ?? ''), cols[i][1] - 3));
+                const alto = Math.max(...wrapped.map(w => w.length)) * 3.5 + 3.2;
+                if (!enCabecera && salto(alto)) cabecera();
+                if (opts.fill) { doc.setFillColor(...opts.fill); doc.rect(M, y, W - 2 * M, alto, 'F'); }
+                let x = M;
+                wrapped.forEach((w, i) => {
+                    const [, cw2, al] = cols[i];
+                    doc.text(w, al === 'right' ? x + cw2 - 1.5 : x + 1.5, y + 4.3, { align: al === 'right' ? 'right' : 'left' });
+                    x += cw2;
+                });
+                doc.setDrawColor(225, 228, 232); doc.setLineWidth(0.2); doc.line(M, y + alto, W - M, y + alto);
+                y += alto;
+            }
+            cabecera();
+            d.recs.forEach((r, k) => {
+                const t = tools.find(x => x.id === r.toolId);
+                const cost = t ? Number(t.cost) || 0 : 0;
+                const extra = [origenes.length > 1 && r.origin ? 'Origen: ' + (BODEGAS[r.origin] || r.origin) : '', r.note ? 'Nota: ' + r.note : '']
+                    .filter(Boolean).join(' · ');
+                const marca = [t && t.brand, t && t.model].filter(Boolean).join(' / ') || '—';
+                fila([t ? t.code : r.code || '', (t ? t.name : r.name || '') + (extra ? '\n' + extra : ''), r.qty, marca,
+                      corta(r.date) || '—', r.delivery ? corta(r.delivery) : 'Pendiente', cost ? crc(cost) : '—', cost ? crc(cost * r.qty) : '—'],
+                     { fill: k % 2 ? [248, 249, 251] : null });
+            });
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+            fila(['', `Total: ${d.recs.length} traslado(s)`, unidades, '', '', '', '', total ? crc(total) : '—'], { fill: [232, 244, 250] });
+            y += 8;
+
+            // Firmas
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(8.6); doc.setTextColor(...GRIS);
+            const nota = doc.splitTextToSize(`Reporte generado el ${fechaLarga(hoy)} desde Bodega Principal · Inventario de Herramientas. Los costos corresponden al costo unitario registrado en el inventario.`, W - 2 * M);
+            salto(nota.length * 4 + 26);
+            doc.text(nota, M, y); y += nota.length * 4 + 16;
+            const fw = 70;
+            doc.setDrawColor(...CARBON); doc.setLineWidth(0.4);
+            doc.line(M + 6, y, M + 6 + fw, y); doc.line(W - M - 6 - fw, y, W - M - 6, y);
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...CARBON);
+            doc.text('Revisado por (Bodega)', M + 6 + fw / 2, y + 5, { align: 'center' });
+            doc.text('Operario', W - M - 6 - fw / 2, y + 5, { align: 'center' });
+            doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRIS);
+            doc.text(d.o.name, W - M - 6 - fw / 2, y + 10, { align: 'center' });
+
+            const n = doc.getNumberOfPages();
+            for (let i = 1; i <= n; i++) {
+                doc.setPage(i); doc.setFontSize(8); doc.setTextColor(...GRIS); doc.setFont('helvetica', 'normal');
+                doc.text('Metal MARC · Ingeniería que toma forma   |   MARCAIRE · HVAC Systems', M, 272);
+                doc.text(`${numero}   ·   Página ${i} de ${n}`, W - M, 272, { align: 'right' });
+            }
+            const etiqueta = [d.o.name, d.o.description, d.o.date].filter(Boolean).join(' ');
+            return { doc, nombre: `Reporte de operario ${etiqueta}.pdf`.replace(/[\\/:*?"<>|]/g, '-') };
+        }
+        function exportFolderReport(opId) {
+            const o = getF(opId);
+            if (!o) return;
+            const recs = records.filter(r => r.folderId === opId)
+                .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.at || '').localeCompare(b.at || ''));
+            openTransferDoc({ id: opId, o, recs, items: recs }, buildFolderReport);
+        }
 
         // Documento de una carpeta ya existente (todas sus herramientas)
         function folderDoc(opId) {
