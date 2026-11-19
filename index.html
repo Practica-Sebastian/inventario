@@ -117,6 +117,8 @@
         }
         .menu button:hover, .menu label:hover { background: rgba(255,255,255,0.06); }
         .menu i { width: 16px; color: var(--azul); }
+        .descargas { position: relative; display: inline-block; }
+        .menu.menu-arriba { top: auto; bottom: calc(100% + 6px); min-width: 170px; z-index: 5; }
 
         /* Métricas */
         .metricas { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
@@ -474,7 +476,15 @@
                 <span class="suave" id="doc-aviso" style="font-size:12.5px">El traslado ya quedó guardado.</span>
                 <div class="derecha">
                     <button type="button" class="btn" onclick="printDoc()"><i class="fa-solid fa-print"></i> Imprimir</button>
-                    <button type="button" class="btn btn-primario" onclick="downloadDoc()"><i class="fa-solid fa-download"></i> <span id="doc-descargar">Descargar PDF</span></button>
+                    <button type="button" class="btn btn-primario" id="doc-btn-pdf" onclick="downloadDoc()"><i class="fa-solid fa-download"></i> Descargar PDF</button>
+                    <div class="descargas" id="doc-descargas" hidden>
+                        <button type="button" class="btn btn-primario" id="doc-btn-formato" onclick="toggleDescargas()" aria-haspopup="true" aria-expanded="false">
+                            <i class="fa-solid fa-download"></i> Descargar <i class="fa-solid fa-chevron-down"></i></button>
+                        <div class="menu menu-arriba" id="doc-menu-formato" hidden>
+                            <button type="button" onclick="downloadDoc('pdf')"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+                            <button type="button" onclick="downloadDoc('xlsx')"><i class="fa-solid fa-file-excel"></i> Excel</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -963,6 +973,7 @@
             'fa-lock': '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/>',
             'fa-chevron-down': '<path d="M6 9l6 6 6-6"/>',
             'fa-print': '<path d="M6 9V3h12v6M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="7"/>',
+            'fa-file-excel': '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M8.5 12l5 6M13.5 12l-5 6"/>',
             'fa-file-pdf': '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M8 13h1.5a1.5 1.5 0 010 3H8v-3zM8 16v2M13 13v5h1a2 2 0 002-2v-1a2 2 0 00-2-2h-1"/>',
             'fa-filter': '<path d="M22 3H2l8 9.5V19l4 2v-8.5z"/>',
             'fa-layer-group': '<path d="M12 2l10 5-10 5L2 7zM2 12l10 5 10-5M2 17l10 5 10-5"/>'
@@ -2421,16 +2432,29 @@
             fr.removeAttribute('srcdoc');
             fr.dataset.url = url; fr.src = url;
             document.getElementById('doc-aviso').textContent = d.aviso || 'El traslado ya quedó guardado.';
-            document.getElementById('doc-descargar').textContent = 'Descargar PDF';
-            document.querySelector('#doc-modal .modal').style.maxWidth = '900px';
+            const esReporte = builder === buildFolderReport;
+            if (esReporte) docActual.datos = d;          // para armar el Excel al descargar
+            document.getElementById('doc-btn-pdf').hidden = esReporte;
+            document.getElementById('doc-descargas').hidden = !esReporte;
+            toggleDescargas(false);
             document.getElementById('doc-title').textContent = docActual.nombre.replace(/\.pdf$/, '');
             showModal('doc-modal');
         }
-        function downloadDoc() {
+        function toggleDescargas(abrir) {
+            const m = document.getElementById('doc-menu-formato'), b = document.getElementById('doc-btn-formato');
+            const mostrar = typeof abrir === 'boolean' ? abrir : m.hidden;
+            m.hidden = !mostrar; b.setAttribute('aria-expanded', String(mostrar));
+        }
+        document.addEventListener('click', e => { if (!e.target.closest('#doc-descargas')) toggleDescargas(false); });
+        function downloadDoc(formato = 'pdf') {
             if (!docActual) return;
-            if (docActual.blob) {   // Excel
+            toggleDescargas(false);
+            if (formato === 'xlsx' && docActual.datos) {
+                let x;
+                try { x = buildFolderExcel(docActual.datos); }
+                catch (err) { uiAlert('No se pudo crear el Excel (' + (err.message || err) + ').'); return; }
                 const a = document.createElement('a');
-                a.href = URL.createObjectURL(docActual.blob); a.download = docActual.nombre;
+                a.href = URL.createObjectURL(x.blob); a.download = x.nombre;
                 document.body.appendChild(a); a.click(); a.remove();
                 setTimeout(() => URL.revokeObjectURL(a.href), 4000);
             } else docActual.doc.save(docActual.nombre);
@@ -2440,7 +2464,7 @@
             try { fr.contentWindow.focus(); fr.contentWindow.print(); }
             catch (e) { if (fr.dataset.url) window.open(fr.dataset.url, '_blank'); }
         }
-        function closeDoc() { hideModal('doc-modal'); }
+        function closeDoc() { toggleDescargas(false); hideModal('doc-modal'); }
 
 
         // ----- Reporte completo de una carpeta de operario -----
@@ -2593,33 +2617,12 @@
         }
 
         // ----- Exportar reporte: PDF o Excel -----
-        async function exportFolderReport(opId) {
+        function exportFolderReport(opId) {
             const o = getF(opId);
             if (!o) return;
-            const fmt = await uiChoice(`¿En qué formato quieres exportar el reporte de ${o.name}?`, [
-                { label: 'PDF', value: 'pdf', primary: true }, { label: 'Excel', value: 'xlsx' }, { label: 'Cancelar', value: null }]);
-            if (!fmt) return;
             const recs = records.filter(r => r.folderId === opId)
                 .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.at || '').localeCompare(b.at || ''));
-            if (fmt === 'pdf') {
-                openTransferDoc({ id: opId, o, recs, items: recs, aviso: 'Vista previa del reporte en PDF.' }, buildFolderReport);
-                return;
-            }
-            try {
-                docActual = buildFolderExcel({ id: opId, o, recs });
-            } catch (err) {
-                uiAlert('No se pudo crear el Excel (' + (err.message || err) + ').');
-                return;
-            }
-            const fr = document.getElementById('doc-frame');
-            if (fr.dataset.url) { URL.revokeObjectURL(fr.dataset.url); delete fr.dataset.url; }
-            fr.removeAttribute('src');
-            fr.srcdoc = docActual.preview;
-            document.getElementById('doc-title').textContent = docActual.nombre.replace(/\.xlsx$/, '');
-            document.getElementById('doc-aviso').textContent = 'Vista previa del Excel. Al descargarlo, los subtotales y totales quedan como fórmulas.';
-            document.getElementById('doc-descargar').textContent = 'Descargar Excel';
-            document.querySelector('#doc-modal .modal').style.maxWidth = 'min(1320px, 96vw)';
-            showModal('doc-modal');
+            openTransferDoc({ id: opId, o, recs, items: recs, aviso: 'Vista previa del reporte. Elige en qué formato descargarlo.' }, buildFolderReport);
         }
 
         // ZIP sin compresión (suficiente para armar un .xlsx sin internet)
