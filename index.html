@@ -471,10 +471,10 @@
             </div>
             <iframe id="doc-frame" title="Vista previa del documento" style="flex:1;border:0;background:#525659;width:100%"></iframe>
             <div class="pie-form" style="padding:12px 18px;margin:0">
-                <span class="suave" style="font-size:12.5px">El traslado ya quedó guardado.</span>
+                <span class="suave" id="doc-aviso" style="font-size:12.5px">El traslado ya quedó guardado.</span>
                 <div class="derecha">
                     <button type="button" class="btn" onclick="printDoc()"><i class="fa-solid fa-print"></i> Imprimir</button>
-                    <button type="button" class="btn btn-primario" onclick="downloadDoc()"><i class="fa-solid fa-download"></i> Descargar PDF</button>
+                    <button type="button" class="btn btn-primario" onclick="downloadDoc()"><i class="fa-solid fa-download"></i> <span id="doc-descargar">Descargar PDF</span></button>
                 </div>
             </div>
         </div>
@@ -2418,15 +2418,27 @@
             const url = URL.createObjectURL(docActual.doc.output('blob'));
             const fr = document.getElementById('doc-frame');
             if (fr.dataset.url) URL.revokeObjectURL(fr.dataset.url);
+            fr.removeAttribute('srcdoc');
             fr.dataset.url = url; fr.src = url;
+            document.getElementById('doc-aviso').textContent = d.aviso || 'El traslado ya quedó guardado.';
+            document.getElementById('doc-descargar').textContent = 'Descargar PDF';
+            document.querySelector('#doc-modal .modal').style.maxWidth = '900px';
             document.getElementById('doc-title').textContent = docActual.nombre.replace(/\.pdf$/, '');
             showModal('doc-modal');
         }
-        function downloadDoc() { if (docActual) docActual.doc.save(docActual.nombre); }
+        function downloadDoc() {
+            if (!docActual) return;
+            if (docActual.blob) {   // Excel
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(docActual.blob); a.download = docActual.nombre;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+            } else docActual.doc.save(docActual.nombre);
+        }
         function printDoc() {
             const fr = document.getElementById('doc-frame');
             try { fr.contentWindow.focus(); fr.contentWindow.print(); }
-            catch (e) { window.open(fr.dataset.url, '_blank'); }
+            catch (e) { if (fr.dataset.url) window.open(fr.dataset.url, '_blank'); }
         }
         function closeDoc() { hideModal('doc-modal'); }
 
@@ -2589,16 +2601,25 @@
             if (!fmt) return;
             const recs = records.filter(r => r.folderId === opId)
                 .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.at || '').localeCompare(b.at || ''));
-            if (fmt === 'pdf') { openTransferDoc({ id: opId, o, recs, items: recs }, buildFolderReport); return; }
+            if (fmt === 'pdf') {
+                openTransferDoc({ id: opId, o, recs, items: recs, aviso: 'Vista previa del reporte en PDF.' }, buildFolderReport);
+                return;
+            }
             try {
-                const { blob, nombre } = buildFolderExcel({ id: opId, o, recs });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob); a.download = nombre;
-                document.body.appendChild(a); a.click(); a.remove();
-                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+                docActual = buildFolderExcel({ id: opId, o, recs });
             } catch (err) {
                 uiAlert('No se pudo crear el Excel (' + (err.message || err) + ').');
+                return;
             }
+            const fr = document.getElementById('doc-frame');
+            if (fr.dataset.url) { URL.revokeObjectURL(fr.dataset.url); delete fr.dataset.url; }
+            fr.removeAttribute('src');
+            fr.srcdoc = docActual.preview;
+            document.getElementById('doc-title').textContent = docActual.nombre.replace(/\.xlsx$/, '');
+            document.getElementById('doc-aviso').textContent = 'Vista previa del Excel. Al descargarlo, los subtotales y totales quedan como fórmulas.';
+            document.getElementById('doc-descargar').textContent = 'Descargar Excel';
+            document.querySelector('#doc-modal .modal').style.maxWidth = 'min(1320px, 96vw)';
+            showModal('doc-modal');
         }
 
         // ZIP sin compresión (suficiente para armar un .xlsx sin internet)
@@ -2827,8 +2848,60 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
                 ['xl/media/image2.jpeg', bytes(LOGO_AIRE.uri)],
                 ['xl/styles.xml', styles],
             ];
+            // Vista previa (misma hoja, dibujada en HTML)
+            const CSS = {
+                1: 'font-weight:700;font-size:21px;white-space:nowrap', 2: 'font-weight:700;background:#F4F7FA', 3: 'background:#F4F7FA',
+                4: 'font-weight:700;color:#fff;background:#292420;border:1px solid #D2DAE2', 5: 'border:1px solid #D2DAE2',
+                6: 'border:1px solid #D2DAE2;text-align:center', 7: 'border:1px solid #D2DAE2;text-align:right', 8: 'border:1px solid #D2DAE2',
+                9: 'font-weight:700;background:#E8F4FA;border:1px solid #D2DAE2', 10: 'font-weight:700;background:#E8F4FA;border:1px solid #D2DAE2;text-align:right',
+                11: 'font-weight:700;font-size:16px;color:#2494C2;border-bottom:2px solid #2494C2;white-space:nowrap', 12: 'font-size:12.5px',
+                13: 'font-style:italic;font-size:12px;color:#6E6862', 14: 'font-size:12px;color:#6E6862;border:1px solid #D2DAE2',
+                15: 'font-weight:700;font-size:17px;border:1px solid #D2DAE2', 16: 'font-weight:700;font-size:17px;border:1px solid #D2DAE2',
+                17: 'font-weight:700;background:#E8F4FA;border:1px solid #D2DAE2;text-align:center',
+                18: 'font-weight:700;text-align:center;border-top:1px solid #292420', 19: 'font-size:12px;color:#6E6862;text-align:right;white-space:nowrap'
+            };
+            const dinero = v => Number(v) ? Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+            const fechaSerial = v => { const f = new Date(Date.UTC(1899, 11, 30) + v * 86400000); return `${String(f.getUTCDate()).padStart(2, '0')}/${String(f.getUTCMonth() + 1).padStart(2, '0')}/${f.getUTCFullYear()}`; };
+            const mostrar = c => {
+                if (c.t === 's') return x(c.v);
+                if ([7, 10, 16].includes(c.st)) return dinero(c.v);
+                if (c.st === 8) return fechaSerial(c.v);
+                return x(c.v);
+            };
+            const span = new Map();   // "fila:col" -> columnas combinadas
+            merges.forEach(m => { const [a, b] = m.split(':'); const rr = +a.slice(1); span.set(rr + ':' + (a.charCodeAt(0) - 65), b.charCodeAt(0) - a.charCodeAt(0) + 1); });
+            const filasHtml = rows.filter(q => q.r > 4).map(({ r: rr, cells }) => {
+                const porCol = new Map(cells.map(c => [c.c, c]));
+                let tds = `<th class="n">${rr}</th>`;
+                for (let c = 0; c < NC; c++) {
+                    const sp = span.get(rr + ':' + c) || 1, cel = porCol.get(c);
+                    tds += `<td${sp > 1 ? ` colspan="${sp}"` : ''} style="${cel && cel.st ? CSS[cel.st] || '' : ''}">${cel ? mostrar(cel) : ''}</td>`;
+                    c += sp - 1;
+                }
+                return `<tr style="height:${Math.round((heights[rr] || 15) * 1.333)}px">${tds}</tr>`;
+            }).join('');
+            const preview = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><style>
+                body{margin:0;background:#525659;font:13px Arial,Helvetica,sans-serif;color:#292420;padding:18px}
+                .hoja{background:#fff;width:max-content;margin:0 auto;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+                .barra{background:#217346;color:#fff;font-size:12px;font-weight:700;padding:6px 10px;display:flex;justify-content:space-between}
+                .logos{display:flex;justify-content:space-between;align-items:flex-start;padding:6px 14px 0 46px;height:96px}
+                table{border-collapse:collapse;table-layout:fixed}
+                td{padding:3px 5px;vertical-align:top;white-space:normal;word-wrap:break-word}
+                th{background:#F1F3F4;color:#6E6862;font-weight:400;font-size:11px;border:1px solid #E0E3E6;padding:2px}
+                th.n{width:32px;text-align:center} .pestana{background:#F1F3F4;border-top:1px solid #E0E3E6;padding:5px 46px;font-size:12px}
+                .pestana b{background:#fff;padding:4px 14px;border:1px solid #E0E3E6;border-top:2px solid #217346;color:#217346}
+                @media print{body{background:#fff;padding:0}.hoja{box-shadow:none}.barra,.pestana,th{display:none}}
+            </style></head><body><div class="hoja">
+                <div class="barra"><span>Vista previa · Excel (.xlsx)</span><span>${x(numero)}</span></div>
+                <div class="logos"><img src="${LOGO_METAL.uri}" style="height:66px"><img src="${LOGO_AIRE.uri}" style="height:88px"></div>
+                <table><colgroup><col style="width:32px">${anchos.map(w => `<col style="width:${Math.round(w * 7.2)}px">`).join('')}</colgroup>
+                <thead><tr><th class="n"></th>${anchos.map((_, i) => `<th>${L(i)}</th>`).join('')}</tr></thead>
+                <tbody>${filasHtml}</tbody></table>
+                <div class="pestana"><b>Reporte</b></div>
+            </div></body></html>`;
+
             const etiqueta = [d.o.name, d.o.description, d.o.date].filter(Boolean).join(' ');
-            return { blob: MiniZip(files), nombre: `Reporte de operario ${etiqueta}.xlsx`.replace(/[\\/:*?"<>|]/g, '-') };
+            return { blob: MiniZip(files), preview, nombre: `Reporte de operario ${etiqueta}.xlsx`.replace(/[\\/:*?"<>|]/g, '-') };
         }
 
         // Documento de una carpeta ya existente (todas sus herramientas)
