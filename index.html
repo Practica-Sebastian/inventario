@@ -356,6 +356,9 @@
         .fila-picker .nota-picker { grid-column: 2 / -1; }
         .nota-registro { display: block; margin-top: 3px; font-size: 12px; color: var(--oro); white-space: pre-line; }
         .btn-mini { height: 36px; font-size: 13px; padding: 0 10px; }
+        .btn-lapiz { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; margin-left: 4px; vertical-align: middle;
+                     border: 1px solid var(--borde-fuerte); border-radius: 7px; background: var(--campo); color: var(--naranja); cursor: pointer; font-size: 12px; }
+        .btn-lapiz:hover { background: #2E2924; }
         /* Mayúsculas en el inventario */
         #tool-form input[type="text"]:not(#tool-photo-url), #tool-form textarea, #search-input,
         #op-name, #op-description, #op-transport, #op-search, #tr-search, #tr-new-op, #tr-note, #dlg-input { text-transform: uppercase; }
@@ -1758,7 +1761,7 @@
                                 ${r.note ? `<span class="nota-registro"><i class="fa-solid fa-note-sticky"></i> ${esc(r.note)}</span>` : ''}</td>
                             <td>${t && t.brand ? esc(t.brand) : '<span class="suave">—</span>'}${t && t.model ? `<span class="modelo">${esc(t.model)}</span>` : ''}</td>
                             <td class="cantidad">${r.qty}</td>
-                            <td class="costo nowrap">${t && Number(t.cost) ? fmtCRC(t.cost) : '<span class="suave">—</span>'}</td>
+                            <td class="costo nowrap">${t && Number(t.cost) ? fmtCRC(t.cost) : '<span class="suave">—</span>'}${t ? ` <button class="btn-lapiz" onclick="editRecordCost('${r.id}')" title="Editar costo" aria-label="Editar costo"><i class="fa-solid fa-pencil"></i></button>` : ''}</td>
                             <td class="costo nowrap">${t && Number(t.cost) ? fmtCRC(Number(t.cost) * r.qty) : '<span class="suave">—</span>'}</td>
                             <td class="nowrap">${r.origin ? esc(BODEGAS[r.origin] || r.origin) : '<span class="suave">—</span>'}</td>
                             <td class="nowrap">${r.date ? fmtDate(r.date) : '<span class="suave">—</span>'}</td>
@@ -2961,6 +2964,24 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
             r.note = v.trim().toUpperCase();
             saveFolders();
             renderRecords();
+        }
+
+        // Editar solo el costo unitario de la herramienta (es el mismo del inventario)
+        async function editRecordCost(id) {
+            const r = records.find(x => x.id === id);
+            const t = r && tools.find(x => x.id === r.toolId);
+            if (!t) return;
+            let v = await uiPrompt(`Costo unitario (CRC) de "${t.name}".\nSe actualiza también en el inventario y en todas las carpetas.`, t.cost ? String(t.cost) : '');
+            while (v !== null) {
+                const limpio = v.trim().replace(/[₡\s]/g, '').replace(/,(?=\d{3}(\D|$))/g, '').replace(',', '.');
+                const n = limpio === '' ? null : Number(limpio);
+                if (n === null || (!isNaN(n) && n >= 0)) {
+                    t.cost = n;
+                    saveAndRender();
+                    return;
+                }
+                v = await uiPrompt('Escribe un número válido (por ejemplo 12500 o 12500.50). Déjalo vacío para quitar el costo.', v);
+            }
         }
 
         async function removeRecord(id) {
