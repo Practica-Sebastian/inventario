@@ -2538,6 +2538,24 @@
             fila(['', `Total: ${d.recs.length} traslado(s)`, unidades, '', '', '', '', total ? crc(total) : '—'], { fill: [232, 244, 250] });
             y += 8;
 
+            // Políticas de herramienta (las mismas del traslado)
+            salto(30);
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5); doc.setTextColor(...AZUL);
+            doc.text('POLÍTICAS HERRAMIENTA', M, y); y += 2;
+            doc.setDrawColor(...AZUL); doc.setLineWidth(0.5); doc.line(M, y, M + 50, y); y += 6;
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(8.2); doc.setTextColor(...CARBON);
+            POLITICAS.forEach((txt, i) => {
+                const lines = doc.splitTextToSize(txt, W - 2 * M - 8);
+                salto(lines.length * 3.6 + 1.3);
+                doc.setFont('helvetica', 'bold'); doc.text(`${i + 1}.`, M, y);
+                doc.setFont('helvetica', 'normal'); doc.text(lines, M + 6, y);
+                y += lines.length * 3.6 + 1.3;
+            });
+            doc.setFontSize(8); doc.setTextColor(...GRIS);
+            const fuente = doc.splitTextToSize(POLITICAS_FUENTE, W - 2 * M);
+            salto(fuente.length * 3.8 + 2);
+            doc.text(fuente, M, y + 1); y += fuente.length * 3.8 + 6;
+
             // Firmas
             doc.setFont('helvetica', 'normal'); doc.setFontSize(8.6); doc.setTextColor(...GRIS);
             const nota = doc.splitTextToSize(`Reporte generado el ${fechaLarga(hoy)} desde Bodega Principal · Inventario de Herramientas. Los costos corresponden al costo unitario registrado en el inventario.`, W - 2 * M);
@@ -2561,12 +2579,256 @@
             const etiqueta = [d.o.name, d.o.description, d.o.date].filter(Boolean).join(' ');
             return { doc, nombre: `Reporte de operario ${etiqueta}.pdf`.replace(/[\\/:*?"<>|]/g, '-') };
         }
-        function exportFolderReport(opId) {
+
+        // ----- Exportar reporte: PDF o Excel -----
+        async function exportFolderReport(opId) {
             const o = getF(opId);
             if (!o) return;
+            const fmt = await uiChoice(`¿En qué formato quieres exportar el reporte de ${o.name}?`, [
+                { label: 'PDF', value: 'pdf', primary: true }, { label: 'Excel', value: 'xlsx' }, { label: 'Cancelar', value: null }]);
+            if (!fmt) return;
             const recs = records.filter(r => r.folderId === opId)
                 .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.at || '').localeCompare(b.at || ''));
-            openTransferDoc({ id: opId, o, recs, items: recs }, buildFolderReport);
+            if (fmt === 'pdf') { openTransferDoc({ id: opId, o, recs, items: recs }, buildFolderReport); return; }
+            try {
+                const { blob, nombre } = buildFolderExcel({ id: opId, o, recs });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob); a.download = nombre;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+            } catch (err) {
+                uiAlert('No se pudo crear el Excel (' + (err.message || err) + ').');
+            }
+        }
+
+        // ZIP sin compresión (suficiente para armar un .xlsx sin internet)
+        const MiniZip = (() => {
+            const T = new Uint32Array(256);
+            for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; T[n] = c >>> 0; }
+            const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = T[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+            return files => {
+                const enc = new TextEncoder(), parts = [], central = [];
+                let offset = 0;
+                files.forEach(([name, data]) => {
+                    const nm = enc.encode(name), bytes = typeof data === 'string' ? enc.encode(data) : data, crc = crc32(bytes);
+                    const h = new DataView(new ArrayBuffer(30));
+                    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+                    h.setUint16(10, 0, true); h.setUint16(12, 0x21, true); h.setUint32(14, crc, true);
+                    h.setUint32(18, bytes.length, true); h.setUint32(22, bytes.length, true); h.setUint16(26, nm.length, true); h.setUint16(28, 0, true);
+                    parts.push(new Uint8Array(h.buffer), nm, bytes);
+                    const c = new DataView(new ArrayBuffer(46));
+                    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
+                    c.setUint16(10, 0, true); c.setUint16(12, 0, true); c.setUint16(14, 0x21, true); c.setUint32(16, crc, true);
+                    c.setUint32(20, bytes.length, true); c.setUint32(24, bytes.length, true); c.setUint16(28, nm.length, true);
+                    c.setUint32(42, offset, true);
+                    central.push(new Uint8Array(c.buffer), nm);
+                    offset += 30 + nm.length + bytes.length;
+                });
+                const size = central.reduce((s, x) => s + x.length, 0);
+                const e = new DataView(new ArrayBuffer(22));
+                e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true);
+                e.setUint32(12, size, true); e.setUint32(16, offset, true);
+                return new Blob([...parts, ...central, new Uint8Array(e.buffer)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            };
+        })();
+
+        function buildFolderExcel(d) {
+            const x = v => String(v ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const L = i => String.fromCharCode(65 + i);          // columnas A..L
+            const serial = iso => { if (!iso) return null; const [y, m, dd] = iso.split('-').map(Number); return (Date.UTC(y, m - 1, dd) - Date.UTC(1899, 11, 30)) / 86400000; };
+            const fechaLarga = iso => { if (!iso) return '—'; const [y, m, dd] = iso.split('-').map(Number); return `${dd} de ${MESES_LARGOS[m - 1]} de ${y}`; };
+            const hoy = todayStr();
+            const numero = 'RC-' + hoy.replace(/-/g, '') + '-' + String(d.id).slice(-4).toUpperCase();
+            const NC = 12, ULT = L(NC - 1);
+            const rows = [], merges = [], heights = {};
+            let r = 0;
+            const row = (cells, h) => { r++; if (h) heights[r] = h; rows.push({ r, cells }); return r; };
+            const txt = (c, v, st) => ({ c, t: 's', v, st });
+            const num = (c, v, st) => ({ c, t: 'n', v, st });
+            const fml = (c, f, v, st) => ({ c, t: 'f', f, v, st });
+
+            // Estilos (ver styles.xml): 1 título, 2 etiqueta, 3 texto, 4 cabecera tabla, 5 celda texto, 6 celda entero,
+            // 7 celda dinero, 8 celda fecha, 9 total etiqueta, 10 total dinero, 11 sección, 12 política, 13 fuente,
+            // 14 resumen etiqueta, 15 resumen valor, 16 resumen dinero, 17 total entero, 18 firma, 19 número reporte
+            row([], 18); row([], 18); row([], 18); row([], 18);   // espacio para los logos
+            const rt = row([txt(0, 'REPORTE DE OPERARIO', 1), txt(NC - 1, 'N.º ' + numero, 19)], 26);
+            merges.push(`A${rt}:F${rt}`);
+            row([]);
+            const origenes = [...new Set(d.recs.map(q => BODEGAS[q.origin] || q.origin).filter(Boolean))];
+            [['Operario', d.o.name], ['Nombre de carpeta', d.o.description || '—'], ['Fecha de carpeta', fechaLarga(d.o.date)],
+             ['Transportado por', d.o.transport || '—'], ['Bodega(s) de origen', origenes.join(', ') || '—'], ['Fecha del reporte', fechaLarga(hoy)]]
+                .forEach(([k, v]) => { const rr = row([txt(0, k + ':', 2), txt(1, v, 3)]); merges.push(`B${rr}:F${rr}`); });
+            row([]);
+
+            let total = 0, unidades = 0, poder = 0, entregadas = 0;
+            d.recs.forEach(q => {
+                const t = tools.find(z => z.id === q.toolId);
+                total += (t ? Number(t.cost) || 0 : 0) * q.qty; unidades += q.qty;
+                if (q.deducted && !q.returned) poder += q.qty;
+                if (q.delivery) entregadas += q.qty;
+            });
+            row([txt(0, 'Traslados', 14), txt(1, 'Unidades', 14), txt(2, 'En su poder', 14), txt(3, 'Entregadas', 14), txt(4, 'Valor total (CRC)', 14)]);
+            const rRes = row([num(0, d.recs.length, 15), num(1, unidades, 15), num(2, poder, 15), num(3, entregadas, 15), num(4, total, 16)], 22);
+            merges.push(`E${rRes - 1}:F${rRes - 1}`, `E${rRes}:F${rRes}`);
+            row([]);
+            const rs = row([txt(0, 'HERRAMIENTAS DE LA CARPETA', 11)], 20);
+
+            const cab = ['N.º de activo', 'Herramienta(s)', 'Nota', 'Cantidad', 'Marca', 'Modelo', 'Bodega de origen',
+                         'Fecha de traslado', 'Fecha de entrega', 'Estado', 'Costo unitario (CRC)', 'Subtotal (CRC)'];
+            const rh = row(cab.map((v, i) => txt(i, v, 4)), 30);
+            const primera = rh + 1;
+            d.recs.forEach(q => {
+                const t = tools.find(z => z.id === q.toolId);
+                const cost = t ? Number(t.cost) || 0 : 0;
+                const estado = q.returned ? 'Entregada' : q.deducted ? 'En poder del operario' : q.delivery ? 'Entregada' : 'Histórico';
+                const rr = r + 1;
+                row([txt(0, t ? t.code : q.code || '', 5), txt(1, t ? t.name : q.name || '', 5), txt(2, q.note || '', 5), num(3, q.qty, 6),
+                     txt(4, (t && t.brand) || '', 5), txt(5, (t && t.model) || '', 5), txt(6, BODEGAS[q.origin] || q.origin || '', 5),
+                     q.date ? num(7, serial(q.date), 8) : txt(7, '', 5), q.delivery ? num(8, serial(q.delivery), 8) : txt(8, 'Pendiente', 5),
+                     txt(9, estado, 5), num(10, cost, 7), fml(11, `D${rr}*K${rr}`, cost * q.qty, 7)]);
+            });
+            const ultima = r;
+            const rTot = row([txt(0, '', 9), txt(1, `Total: ${d.recs.length} traslado(s)`, 9), txt(2, '', 9),
+                              fml(3, `SUM(D${primera}:D${ultima})`, unidades, 17), ...[4, 5, 6, 7, 8, 9, 10].map(c => txt(c, '', 9)),
+                              fml(11, `SUM(L${primera}:L${ultima})`, total, 10)], 20);
+            row([]);
+
+            // Políticas de herramienta
+            row([txt(0, 'POLÍTICAS HERRAMIENTA', 11)], 20);
+            POLITICAS.forEach((p, i) => {
+                const lineas = Math.ceil((p.length + 4) / 200);
+                const rr = row([txt(0, `${i + 1}. ${p}`, 12)], Math.max(16, lineas * 14 + 4));
+                merges.push(`A${rr}:${ULT}${rr}`);
+            });
+            const rf = row([txt(0, POLITICAS_FUENTE, 13)], 16);
+            merges.push(`A${rf}:${ULT}${rf}`);
+            row([]); row([]); row([], 30);
+            const rFirma = row([txt(1, 'Revisado por (Bodega)', 18), txt(6, 'Operario', 18)], 18);
+            merges.push(`B${rFirma}:C${rFirma}`, `G${rFirma}:I${rFirma}`);
+            const rNom = row([txt(6, d.o.name, 3)]);
+            merges.push(`G${rNom}:I${rNom}`);
+
+            const celda = (rr, c) => {
+                const ref = L(c.c) + rr, st = c.st ? ` s="${c.st}"` : '';
+                if (c.t === 'n') return c.v === null || c.v === undefined ? `<c r="${ref}"${st}/>` : `<c r="${ref}"${st}><v>${c.v}</v></c>`;
+                if (c.t === 'f') return `<c r="${ref}"${st}><f>${c.f}</f><v>${c.v}</v></c>`;
+                return `<c r="${ref}"${st} t="inlineStr"><is><t xml:space="preserve">${x(c.v)}</t></is></c>`;
+            };
+            // Bordes de las celdas combinadas en el bloque de firmas y total
+            const anchos = [21, 40, 28, 10, 15, 15, 22, 14, 14, 20, 17, 17];
+            const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>
+<dimension ref="A1:${ULT}${r}"/>
+<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>
+<sheetFormatPr defaultRowHeight="15"/>
+<cols>${anchos.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>
+<sheetData>${rows.map(({ r: rr, cells }) => `<row r="${rr}"${heights[rr] ? ` ht="${heights[rr]}" customHeight="1"` : ''}>${cells.map(c => celda(rr, c)).join('')}</row>`).join('')}</sheetData>
+<mergeCells count="${merges.length}">${merges.map(m => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>
+<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>
+<pageSetup paperSize="1" orientation="landscape" fitToWidth="1" fitToHeight="0"/>
+<headerFooter><oddFooter>&amp;L&amp;8Metal MARC · Ingeniería que toma forma   |   MARCAIRE · HVAC Systems&amp;R&amp;8${x(numero)} · Página &amp;P de &amp;N</oddFooter></headerFooter>
+<drawing r:id="rId1"/>
+</worksheet>`;
+
+            const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="2"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="#,##0.00;-#,##0.00;&quot;—&quot;"/></numFmts>
+<fonts count="9">
+<font><sz val="10"/><color rgb="FF292420"/><name val="Arial"/></font>
+<font><b/><sz val="16"/><color rgb="FF292420"/><name val="Arial"/></font>
+<font><b/><sz val="10"/><color rgb="FF292420"/><name val="Arial"/></font>
+<font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>
+<font><b/><sz val="12"/><color rgb="FF2494C2"/><name val="Arial"/></font>
+<font><i/><sz val="9"/><color rgb="FF6E6862"/><name val="Arial"/></font>
+<font><sz val="9"/><color rgb="FF6E6862"/><name val="Arial"/></font>
+<font><b/><sz val="13"/><color rgb="FF292420"/><name val="Arial"/></font>
+<font><sz val="9.5"/><color rgb="FF292420"/><name val="Arial"/></font>
+</fonts>
+<fills count="5">
+<fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF292420"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFE8F4FA"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFF4F7FA"/><bgColor indexed="64"/></patternFill></fill>
+</fills>
+<borders count="4">
+<border><left/><right/><top/><bottom/><diagonal/></border>
+<border><left style="thin"><color rgb="FFD2DAE2"/></left><right style="thin"><color rgb="FFD2DAE2"/></right><top style="thin"><color rgb="FFD2DAE2"/></top><bottom style="thin"><color rgb="FFD2DAE2"/></bottom><diagonal/></border>
+<border><left/><right/><top style="thin"><color rgb="FF292420"/></top><bottom/><diagonal/></border>
+<border><left/><right/><top/><bottom style="medium"><color rgb="FF2494C2"/></bottom><diagonal/></border>
+</borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="20">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="2" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
+<xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/>
+<xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+<xf numFmtId="1" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>
+<xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment vertical="top"/></xf>
+<xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="top"/></xf>
+<xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
+<xf numFmtId="165" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="4" fillId="0" borderId="3" xfId="0" applyFont="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="8" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="5" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="6" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"/>
+<xf numFmtId="1" fontId="7" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="165" fontId="7" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="1" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="0" fontId="2" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>
+<xf numFmtId="0" fontId="6" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+
+            // Logos: Metal MARC a la izquierda, MARCAIRE a la derecha
+            const EMU = 9525; // por píxel
+            const img = (id, logo, col, colOff, alto) => {
+                const h = alto, w = Math.round(alto * logo.w / logo.h);
+                return `<xdr:oneCellAnchor><xdr:from><xdr:col>${col}</xdr:col><xdr:colOff>${colOff * EMU}</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>${4 * EMU}</xdr:rowOff></xdr:from>
+<xdr:ext cx="${w * EMU}" cy="${h * EMU}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${id + 1}" name="Logo ${id}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>
+<xdr:blipFill><a:blip r:embed="rId${id}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
+<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${w * EMU}" cy="${h * EMU}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>`;
+            };
+            const drawing = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
+</xdr:wsDr>`;
+            const bytes = uri => { const b = atob(uri.split(',')[1]); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; };
+
+            const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+            const files = [
+                ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpeg" ContentType="image/jpeg"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>
+<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`],
+                ['_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`],
+                ['docProps/core.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>Reporte de operario ${x(d.o.name)}</dc:title><dc:creator>Bodega Principal · Inventario de Herramientas</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString().slice(0, 19)}Z</dcterms:created></cp:coreProperties>`],
+                ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${R}"><sheets><sheet name="Reporte" sheetId="1" r:id="rId1"/></sheets>
+<definedNames><definedName name="_xlnm.Print_Area" localSheetId="0">Reporte!$A$1:$${ULT}$${r}</definedName></definedNames><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>`],
+                ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${R}/styles" Target="styles.xml"/></Relationships>`],
+                ['xl/worksheets/sheet1.xml', sheet],
+                ['xl/worksheets/_rels/sheet1.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/drawing" Target="../drawings/drawing1.xml"/></Relationships>`],
+                ['xl/drawings/drawing1.xml', drawing],
+                ['xl/drawings/_rels/drawing1.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/image" Target="../media/image1.jpeg"/><Relationship Id="rId2" Type="${R}/image" Target="../media/image2.jpeg"/></Relationships>`],
+                ['xl/media/image1.jpeg', bytes(LOGO_METAL.uri)],
+                ['xl/media/image2.jpeg', bytes(LOGO_AIRE.uri)],
+                ['xl/styles.xml', styles],
+            ];
+            const etiqueta = [d.o.name, d.o.description, d.o.date].filter(Boolean).join(' ');
+            return { blob: MiniZip(files), nombre: `Reporte de operario ${etiqueta}.xlsx`.replace(/[\\/:*?"<>|]/g, '-') };
         }
 
         // Documento de una carpeta ya existente (todas sus herramientas)
