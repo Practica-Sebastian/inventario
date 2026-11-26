@@ -128,6 +128,10 @@
         @media (max-width: 1000px) { .gas-barra, .gas-tr-barra { grid-template-columns: 1fr 1fr; } }
         @media (max-width: 600px) { .gas-barra, .gas-tr-barra { grid-template-columns: 1fr; } }
         .gas-icono { width: 44px; height: 44px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: rgba(212,168,69,0.12); color: var(--oro); font-size: 20px; }
+        .clases-fuego { display: flex; gap: 6px; flex-wrap: wrap; }
+        .clases-fuego label { display: inline-flex; align-items: center; gap: 5px; height: 40px; padding: 0 11px; border-radius: 9px; border: 1px solid var(--borde-fuerte); background: var(--campo); cursor: pointer; font-weight: 700; }
+        .clases-fuego label:has(input:checked) { border-color: var(--oro); background: rgba(212,168,69,0.16); color: var(--oro); }
+        .clases-fuego input { accent-color: var(--oro); }
         .gas-items { display: flex; flex-direction: column; gap: 3px; }
         .estado.e-devuelto { color: #4CC38A; border-color: rgba(76,195,138,0.5); }
         .menu.menu-arriba { top: auto; bottom: calc(100% + 6px); min-width: 170px; z-index: 5; }
@@ -955,11 +959,22 @@
                 <div class="fila">
                     <div>
                         <label class="etiqueta" for="gas-provider">Proveedor</label>
-                        <select id="gas-provider" class="campo" required></select>
+                        <select id="gas-provider" class="campo" required onchange="onGasProvider()"></select>
                     </div>
                     <div>
-                        <label class="etiqueta" for="gas-category">Categoría</label>
+                        <label class="etiqueta" for="gas-category">Categoría <span class="suave" id="gas-cat-opc" hidden>(opcional)</span></label>
                         <select id="gas-category" class="campo" required></select>
+                    </div>
+                </div>
+                <div class="fila" id="gas-ext-box" hidden>
+                    <div>
+                        <label class="etiqueta" for="gas-agent">Agente extintor</label>
+                        <select id="gas-agent" class="campo" onchange="onGasAgent()"></select>
+                    </div>
+                    <div>
+                        <span class="etiqueta">Clases de fuego</span>
+                        <div class="clases-fuego" id="gas-classes"></div>
+                        <span class="sub" style="display:block;margin-top:4px">Se marcan solas según el agente; puedes ajustarlas.</span>
                     </div>
                 </div>
                 <div class="fila">
@@ -2754,15 +2769,31 @@
 
 
         // =================== Bodega de Control de Cilindros de Gases ===================
-        const GAS_PROVIDERS = ['GASES INDUSTRIALES', 'SVA GASES', 'GASPRO - SOL Y GAS', 'CONTROL DE EXTINTORES'];
+        const GAS_PROVIDERS = ['GASES INDUSTRIALES', 'SVA GASES', 'GASPRO', 'SOL Y GAS', 'CONTROL DE EXTINTORES'];
+        const EXTINTORES = 'CONTROL DE EXTINTORES';
+        const FIRE_CLASSES = ['A', 'B', 'C', 'D', 'K'];
+        // Agente extintor -> clases de fuego que apaga (tabla de referencia de extintores)
+        const AGENTES = {
+            'AGUA': ['A'],
+            'DIÓXIDO DE CARBONO': ['B', 'C'],
+            'POLVO QUÍMICO SECO': ['A', 'B', 'C'],
+            'TIPO K': ['K'],
+            'AGENTES LIMPIOS': ['A', 'B', 'C']
+        };
+        // Texto de categoría para tablas y PDF: gas, o agente extintor con sus clases
+        const gasTipo = x => {
+            const cl = (x.fireClasses || []).length ? ` (CLASE ${x.fireClasses.join(', ')})` : '';
+            const ag = x.agent ? x.agent + cl : (cl ? cl.trim() : '');
+            return [x.category, ag].filter(Boolean).join(' · ') || '—';
+        };
         const GAS_TYPES = ['ACETILENO', 'OXÍGENO', 'NITRÓGENO', 'ARGÓN CO2'];
         // Todo lo de la bodega de cilindros va en MAYÚSCULAS (también lo que ya estaba guardado)
         function upperGas() {
             let changed = false;
             const up = (o, k) => { if (typeof o[k] === 'string' && o[k] !== o[k].toUpperCase()) { o[k] = o[k].toUpperCase(); changed = true; } };
-            gases.forEach(g => ['code', 'name', 'provider', 'category'].forEach(k => up(g, k)));
+            gases.forEach(g => ['code', 'name', 'provider', 'category', 'agent'].forEach(k => up(g, k)));
             gasTransfers.forEach(t => { ['operator', 'transport', 'note'].forEach(k => up(t, k));
-                (t.items || []).forEach(i => ['code', 'name', 'provider', 'category'].forEach(k => up(i, k))); });
+                (t.items || []).forEach(i => ['code', 'name', 'provider', 'category', 'agent'].forEach(k => up(i, k))); });
             return changed;
         }
         let gases = [], gasTransfers = [];
@@ -2770,7 +2801,7 @@
         const gasOut = id => gasTransfers.filter(t => t.deducted && !t.returned)
             .reduce((s, t) => s + t.items.filter(i => i.gasId === id).reduce((a, i) => a + i.qty, 0), 0);
         const gasOpts = (list, sel, vacio) => (vacio ? `<option value="">${vacio}</option>` : '') +
-            list.map(v => `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(v)}</option>`).join('');
+            (sel && !list.includes(sel) ? [sel, ...list] : list).map(v => `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(v)}</option>`).join('');
 
         function updateGasStats() {
             const unidades = gases.reduce((s, g) => s + g.quantity, 0);
@@ -2834,7 +2865,7 @@
             const body = document.getElementById('gas-body');
             if (!body) return;
             const q = norm(document.getElementById('gas-search').value), fp = document.getElementById('gas-f-prov').value, fc = document.getElementById('gas-f-cat').value;
-            const list = gases.filter(g => (!q || norm([g.code, g.name, g.provider, g.category].join(' ')).includes(q))
+            const list = gases.filter(g => (!q || norm([g.code, g.name, g.provider, gasTipo(g)].join(' ')).includes(q))
                 && (!fp || g.provider === fp) && (!fc || g.category === fc))
                 .sort((a, b) => String(a.code).localeCompare(String(b.code), 'es', { numeric: true }));
             body.innerHTML = list.map(g => {
@@ -2843,7 +2874,7 @@
                     <td class="codigo">${esc(g.code)}</td>
                     <td class="nombre">${g.name ? esc(g.name) : '<span class="suave">—</span>'}</td>
                     <td>${esc(g.provider)}</td>
-                    <td><span class="chip">${esc(g.category)}</span></td>
+                    <td>${g.category ? `<span class="chip">${esc(g.category)}</span>` : ''}${g.agent ? `<span class="chip" style="border-color:rgba(232,90,79,0.55)">${esc(g.agent)}</span>${(g.fireClasses || []).length ? `<span class="sub" style="display:block;margin-top:4px">CLASE ${esc(g.fireClasses.join(', '))}</span>` : ''}` : ''}${!g.category && !g.agent ? '<span class="suave">—</span>' : ''}</td>
                     <td class="cantidad">${g.quantity}${fuera ? `<span class="sub">${fuera} con operarios</span>` : ''}</td>
                     <td class="costo">${Number(g.cost) ? fmtCRC(g.cost) : '<span class="suave">—</span>'}</td>
                     <td><button class="btn-icono" onclick="openGasModal('${g.id}')" title="Editar" aria-label="Editar ${esc(g.code)}"><i class="fa-solid fa-pen"></i></button></td>
@@ -2866,7 +2897,7 @@
             const box = document.getElementById('gas-tr-list');
             if (!box) return;
             const q = norm(document.getElementById('gas-tr-search').value), fe = document.getElementById('gas-tr-estado').value;
-            const list = gasTransfers.filter(t => (!q || norm([t.operator, t.transport, t.note, ...t.items.map(i => [i.code, i.name, i.category, i.provider].join(' '))].join(' ')).includes(q))
+            const list = gasTransfers.filter(t => (!q || norm([t.operator, t.transport, t.note, ...t.items.map(i => [i.code, i.name, gasTipo(i), i.provider].join(' '))].join(' ')).includes(q))
                 && (!fe || (fe === 'pend' ? t.deducted && !t.returned : fe === 'dev' ? t.returned : !t.deducted)))
                 .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.at || '').localeCompare(a.at || ''));
             if (!list.length) {
@@ -2881,7 +2912,7 @@
                     return `<tr>
                         <td class="nowrap">${esc(fmtDate(t.date))}</td>
                         <td class="nombre">${esc(t.operator)}${t.note ? `<span class="nota-registro">${esc(t.note)}</span>` : ''}</td>
-                        <td><div class="gas-items">${t.items.map(i => `<span><span class="codigo">${esc(i.code)}</span> ${i.name ? esc(i.name) + ' · ' : ''}${esc(i.category)} · ${esc(i.provider)} <b>× ${i.qty}</b></span>`).join('')}</div></td>
+                        <td><div class="gas-items">${t.items.map(i => `<span><span class="codigo">${esc(i.code)}</span> ${i.name ? esc(i.name) + ' · ' : ''}${esc(gasTipo(i))} · ${esc(i.provider)} <b>× ${i.qty}</b></span>`).join('')}</div></td>
                         <td class="cantidad">${und}</td>
                         <td class="costo nowrap">${valor ? fmtCRC(valor) : '<span class="suave">—</span>'}</td>
                         <td>${t.transport ? esc(t.transport) : '<span class="suave">—</span>'}</td>
@@ -2906,8 +2937,12 @@
             document.getElementById('gas-code').value = g ? g.code : nextGasCode();
             document.getElementById('gas-name').value = g ? g.name || '' : '';
             document.getElementById('gas-provider').innerHTML = gasOpts(GAS_PROVIDERS, g && g.provider, g ? '' : 'Selecciona el proveedor');
-            document.getElementById('gas-category').innerHTML = gasOpts(GAS_TYPES, g && g.category, g ? '' : 'Selecciona la categoría');
-            if (!g) { document.getElementById('gas-provider').options[0].disabled = true; document.getElementById('gas-category').options[0].disabled = true; }
+            document.getElementById('gas-category').innerHTML = gasOpts(GAS_TYPES, g && g.category, 'Selecciona la categoría');
+            if (!g) document.getElementById('gas-provider').options[0].disabled = true;
+            document.getElementById('gas-agent').innerHTML = gasOpts(Object.keys(AGENTES), g && g.agent, 'Selecciona el agente');
+            document.getElementById('gas-classes').innerHTML = FIRE_CLASSES.map(c =>
+                `<label><input type="checkbox" value="${c}"${g && (g.fireClasses || []).includes(c) ? ' checked' : ''}> ${c}</label>`).join('');
+            onGasProvider(true);
             document.getElementById('gas-qty').value = g ? g.quantity : 1;
             document.getElementById('gas-cost').value = g && g.cost != null ? g.cost : '';
             document.getElementById('btn-delete-gas').hidden = !g;
@@ -2916,14 +2951,30 @@
             document.getElementById('gas-code').focus();
         }
         function closeGasModal() { hideModal('gas-modal'); }
+        function onGasProvider() {
+            const ext = document.getElementById('gas-provider').value === EXTINTORES;
+            document.getElementById('gas-ext-box').hidden = !ext;
+            document.getElementById('gas-agent').required = ext;
+            document.getElementById('gas-category').required = !ext;   // a un extintor no se le exige el gas
+            document.getElementById('gas-cat-opc').hidden = !ext;
+            document.getElementById('gas-category').options[0].disabled = !ext;
+        }
+        function onGasAgent() {
+            const cl = AGENTES[document.getElementById('gas-agent').value] || [];
+            document.querySelectorAll('#gas-classes input').forEach(i => i.checked = cl.includes(i.value));
+        }
         async function saveGas(e) {
             e.preventDefault();
             const id = document.getElementById('gas-id').value;
             const code = document.getElementById('gas-code').value.trim().toUpperCase();
             if (gases.some(g => g.id !== id && norm(g.code) === norm(code))) { await uiAlert(`Ya existe un cilindro con el código ${code}.`); return; }
             const costRaw = document.getElementById('gas-cost').value;
+            const ext = document.getElementById('gas-provider').value === EXTINTORES;
+            const fireClasses = ext ? [...document.querySelectorAll('#gas-classes input:checked')].map(i => i.value) : [];
+            if (ext && !fireClasses.length) { await uiAlert('Marca al menos una clase de fuego para el extintor.'); return; }
             const data = {
                 code, name: document.getElementById('gas-name').value.trim().toUpperCase(), provider: document.getElementById('gas-provider').value, category: document.getElementById('gas-category').value,
+                agent: ext ? document.getElementById('gas-agent').value : '', fireClasses,
                 quantity: Math.max(0, parseInt(document.getElementById('gas-qty').value, 10) || 0),
                 cost: costRaw === '' ? null : Number(costRaw)
             };
@@ -2936,7 +2987,7 @@
             const id = document.getElementById('gas-id').value, g = gases.find(x => x.id === id);
             if (!g) return;
             const fuera = gasOut(id);
-            if (!(await uiConfirm(`¿Eliminar el cilindro ${g.code} ${g.name || ''} (${g.category} · ${g.provider})?${fuera ? `\nOjo: tiene ${fuera} unidades con operarios. Los traslados se conservan.` : ''}`))) return;
+            if (!(await uiConfirm(`¿Eliminar el cilindro ${g.code} ${g.name || ''} (${gasTipo(g)} · ${g.provider})?${fuera ? `\nOjo: tiene ${fuera} unidades con operarios. Los traslados se conservan.` : ''}`))) return;
             gases = gases.filter(x => x.id !== id);
             closeGasModal();
             saveAndRender();
@@ -2986,7 +3037,7 @@
                 ? 'Fecha anterior a hoy: es un registro histórico. El inventario de cilindros no cambia y puedes poner la cantidad que quieras.'
                 : 'Fecha de hoy o futura: los cilindros se rebajan de la bodega. La devolución se registra después en la pestaña Traslados.';
             const q = norm(document.getElementById('gt-search').value);
-            const list = gases.filter(g => !q || norm([g.code, g.name, g.provider, g.category].join(' ')).includes(q))
+            const list = gases.filter(g => !q || norm([g.code, g.name, g.provider, gasTipo(g)].join(' ')).includes(q))
                 .sort((a, b) => String(a.code).localeCompare(String(b.code), 'es', { numeric: true }));
             document.getElementById('gt-list').innerHTML = list.map(g => {
                 const ya = (gasCart.find(c => c.gasId === g.id) || {}).qty || 0;
@@ -2995,7 +3046,7 @@
                     <span class="gas-icono"><i class="fa-solid fa-gas"></i></span>
                     <div><span class="codigo">${esc(g.code)}</span>
                         ${ya ? `<span class="marca-ya"><i class="fa-solid fa-circle-check"></i> Ya agregado: ${ya}</span>` : ''}
-                        <br><strong>${esc(g.name || g.category)}</strong> <span class="suave">· ${g.name ? esc(g.category) + ' · ' : ''}${esc(g.provider)}</span>
+                        <br><strong>${esc(g.name || gasTipo(g))}</strong> <span class="suave">· ${g.name ? esc(gasTipo(g)) + ' · ' : ''}${esc(g.provider)}</span>
                         <span class="sub">${hist ? `En bodega: ${g.quantity}` : `Disponibles: ${libre}`}${Number(g.cost) ? ' · ' + fmtCRC(g.cost) : ''}</span></div>
                     <input type="number" class="campo" id="gt-q-${g.id}" min="1" ${hist ? '' : `max="${Math.max(libre, 1)}"`} value="1" ${agotado ? 'disabled' : ''} aria-label="Cantidad">
                     <button type="button" class="btn btn-primario" onclick="addGasToCart('${g.id}')" ${agotado ? 'disabled' : ''}>${agotado ? 'Agotado' : ya ? 'Sumar' : 'Agregar'}</button>
@@ -3003,7 +3054,7 @@
             }).join('') || '<p class="conteo">No hay cilindros con esa búsqueda.</p>';
             document.getElementById('gt-cart').innerHTML = gasCart.length ? gasCart.map(c => {
                 const g = gases.find(x => x.id === c.gasId);
-                return `<div class="item-carrito"><span><span class="codigo">${esc(g.code)}</span> ${g.name ? esc(g.name) + ' · ' : ''}${esc(g.category)} · ${esc(g.provider)}</span>
+                return `<div class="item-carrito"><span><span class="codigo">${esc(g.code)}</span> ${g.name ? esc(g.name) + ' · ' : ''}${esc(gasTipo(g))} · ${esc(g.provider)}</span>
                     <span class="nowrap"><b>${c.qty}</b> <button type="button" class="cerrar" style="font-size:15px" onclick="removeGasFromCart('${c.gasId}')" aria-label="Quitar"><i class="fa-solid fa-xmark"></i></button></span></div>`;
             }).join('') : '<p class="conteo" style="margin:0">Todavía no agregaste cilindros.</p>';
             document.getElementById('gt-total').textContent = gasCart.length ? `${gasCart.length} cilindros · ${gasCart.reduce((s, c) => s + c.qty, 0)} unidades` : '';
@@ -3014,7 +3065,7 @@
             const qty = parseInt(document.getElementById('gt-q-' + id).value, 10);
             const ya = (gasCart.find(c => c.gasId === id) || {}).qty || 0;
             if (!(qty >= 1)) { await uiAlert('Escribe una cantidad de 1 en adelante.'); return; }
-            if (!gasHist() && qty + ya > g.quantity) { await uiAlert(`Solo hay ${g.quantity - ya} disponibles de ${g.code} (${g.category}).`); return; }
+            if (!gasHist() && qty + ya > g.quantity) { await uiAlert(`Solo hay ${g.quantity - ya} disponibles de ${g.code} (${g.name || gasTipo(g)}).`); return; }
             const item = gasCart.find(c => c.gasId === id);
             if (item) item.qty += qty; else gasCart.push({ gasId: id, qty });
             saveGasDraft(); renderGasTransfer();
@@ -3040,7 +3091,7 @@
                 id: 'gt' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), operator, date,
                 transport: document.getElementById('gt-transport').value.trim().toUpperCase(),
                 note: document.getElementById('gt-note').value.trim().toUpperCase(),
-                items: gasCart.map(c => { const g = gases.find(x => x.id === c.gasId); return { gasId: g.id, code: g.code, name: g.name || '', provider: g.provider, category: g.category, qty: c.qty, cost: g.cost ?? null }; }),
+                items: gasCart.map(c => { const g = gases.find(x => x.id === c.gasId); return { gasId: g.id, code: g.code, name: g.name || '', provider: g.provider, category: g.category, agent: g.agent || '', fireClasses: g.fireClasses || [], qty: c.qty, cost: g.cost ?? null }; }),
                 deducted, returned: false, delivery: '', at: new Date().toISOString()
             };
             if (deducted) t.items.forEach(i => { const g = gases.find(x => x.id === i.gasId); g.quantity -= i.qty; });
@@ -3056,7 +3107,7 @@
             const t = gasTransfers.find(x => x.id === id);
             if (!t) return;
             openTransferDoc({ gas: true, operario: t.operator, fecha: t.date, transporte: t.transport, nota: t.note, numero: t.id,
-                items: t.items.map(i => ({ qty: i.qty, tool: { code: i.code, name: i.name || '', provider: i.provider, category: i.category, cost: i.cost } })),
+                items: t.items.map(i => ({ qty: i.qty, tool: { code: i.code, name: i.name || '', provider: i.provider, category: gasTipo(i), cost: i.cost } })),
                 aviso: 'El traslado de cilindros ya quedó guardado en la pestaña Traslados.' });
         }
         async function returnGasTransfer(id) {
