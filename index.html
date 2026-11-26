@@ -118,6 +118,18 @@
         .menu button:hover, .menu label:hover { background: rgba(255,255,255,0.06); }
         .menu i { width: 16px; color: var(--azul); }
         .descargas { position: relative; display: inline-block; }
+        .sub-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; border-bottom: 1px solid var(--borde); padding-bottom: 12px; }
+        .sub-tab { height: 38px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--borde-fuerte); background: var(--campo); color: var(--texto-suave); font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+        .sub-tab.activa { background: var(--oro); border-color: var(--oro); color: #292420; }
+        .sub-tab .insignia { display: inline-block; min-width: 0; padding: 1px 8px; border-radius: 999px; font-size: 12px; line-height: 1.5; background: rgba(255,255,255,0.1); color: inherit; }
+        .sub-tab.activa .insignia { background: rgba(0,0,0,0.18); }
+        .gas-barra { display: grid; grid-template-columns: 1fr 190px 170px auto auto; gap: 10px; margin-bottom: 14px; }
+        .gas-tr-barra { display: grid; grid-template-columns: 1fr 200px auto; gap: 10px; margin-bottom: 14px; }
+        @media (max-width: 1000px) { .gas-barra, .gas-tr-barra { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 600px) { .gas-barra, .gas-tr-barra { grid-template-columns: 1fr; } }
+        .gas-icono { width: 44px; height: 44px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: rgba(212,168,69,0.12); color: var(--oro); font-size: 20px; }
+        .gas-items { display: flex; flex-direction: column; gap: 3px; }
+        .estado.e-devuelto { color: #4CC38A; border-color: rgba(76,195,138,0.5); }
         .menu.menu-arriba { top: auto; bottom: calc(100% + 6px); min-width: 170px; z-index: 5; }
 
         /* Métricas */
@@ -174,7 +186,7 @@
         }
         /* En pantallas angostas la tabla se desliza de lado, así que se desplaza por dentro para mantener los títulos */
         @media (max-width: 1299px) { #view-inventory .tabla-envoltura { max-height: calc(100vh - 120px); overflow: auto; } }
-        table { width: 100%; border-collapse: collapse; min-width: 1080px; }
+        table { width: 100%; border-collapse: collapse; min-width: 1180px; }
         th {
             text-align: left; font-size: 12.5px; font-weight: 600; color: var(--texto-suave);
             padding: 12px 12px; border-bottom: 1px solid var(--borde);
@@ -529,16 +541,17 @@
                 <button class="nav-btn activa" id="nav-all" onclick="goSection('all')"><i class="fa-solid fa-warehouse"></i> Bodega Principal</button>
                 <button class="nav-btn" id="nav-taller" onclick="goSection('Equipos MARC')"><i class="fa-solid fa-warehouse"></i> Bodega Taller MARC</button>
                 <button class="nav-btn" id="nav-inst" onclick="goSection('Instalaciones')"><i class="fa-solid fa-warehouse"></i> Bodega Instalaciones</button>
+                <button class="nav-btn" id="nav-gas" onclick="goSection('gases')"><i class="fa-solid fa-gas"></i> Bodega de Control de Cilindros de Gases</button>
                 <button class="nav-btn" id="nav-op" onclick="goSection('operarios')"><i class="fa-solid fa-users"></i> Operarios</button>
             </nav>
         </header>
 
         <!-- Métricas -->
         <section class="metricas">
-            <div class="tarjeta metrica"><span>Total activos</span><strong id="stat-total">0</strong><span id="stat-units" class="sub"></span></div>
-            <div class="tarjeta metrica"><span>Buenas / Nuevas</span><strong id="stat-good" class="c-azul">0</strong></div>
-            <div class="tarjeta metrica"><span>Prestadas / En uso</span><strong id="stat-borrowed" class="c-oro">0</strong><span id="stat-reserved" class="sub"></span></div>
-            <div class="tarjeta metrica"><span>Malas / Mantenimiento / Dañadas</span><strong id="stat-maintenance" class="c-rojo">0</strong></div>
+            <div class="tarjeta metrica"><span id="lbl-total">Total activos</span><strong id="stat-total">0</strong><span id="stat-units" class="sub"></span></div>
+            <div class="tarjeta metrica"><span id="lbl-good">Buenas / Nuevas</span><strong id="stat-good" class="c-azul">0</strong></div>
+            <div class="tarjeta metrica"><span id="lbl-borrowed">Prestadas / En uso</span><strong id="stat-borrowed" class="c-oro">0</strong><span id="stat-reserved" class="sub"></span></div>
+            <div class="tarjeta metrica"><span id="lbl-maint">Malas / Mantenimiento / Dañadas</span><strong id="stat-maintenance" class="c-rojo">0</strong></div>
             <div class="tarjeta metrica"><span>Valor del inventario</span><strong id="stat-value" class="c-azul">₡0.00</strong></div>
         </section>
 
@@ -552,10 +565,11 @@
             </div>
 
             <div id="view-operarios" hidden></div>
+            <div id="view-gases" hidden></div>
 
             <div id="view-inventory">
             <div class="filtros">
-                <input type="text" id="search-input" class="campo busqueda" oninput="filterTools()" placeholder="Buscar código, nombre, marca, ubicación o responsable...">
+                <input type="text" id="search-input" class="campo busqueda" oninput="filterTools()" placeholder="Buscar código, código de activo, nombre, marca, ubicación o responsable...">
                 <button type="button" class="btn btn-filtros" id="btn-filtros" onclick="toggleFiltros()" aria-expanded="false" aria-controls="panel-filtros">
                     <i class="fa-solid fa-filter"></i> Filtros <span class="insignia" id="filtros-activos" hidden></span>
                     <svg class="flecha-menu" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
@@ -623,6 +637,7 @@
                         <tr>
                             <th>Foto</th>
                             <th>Código</th>
+                            <th>Código de activo</th>
                             <th>Categoría</th>
                             <th>Activo / Equipo</th>
                             <th>Marca / Modelo</th>
@@ -681,6 +696,10 @@
                         </div>
                         <p class="ayuda" id="code-hint"></p>
                     </div>
+                </div>
+                <div>
+                    <label class="etiqueta" for="tool-asset">Código de activo <span class="suave">(opcional)</span></label>
+                    <input type="text" id="tool-asset" class="campo" maxlength="60" placeholder="Ej. AF-000123">
                 </div>
                 <div>
                     <label class="etiqueta" for="tool-name">Nombre (activo / equipo)</label>
@@ -916,6 +935,102 @@
         </div>
     </div>
 
+    <!-- Cilindro de gas -->
+    <div id="gas-modal" class="fondo-modal">
+        <div class="tarjeta modal" style="max-width:520px" role="dialog" aria-modal="true" aria-labelledby="gas-title">
+            <div class="modal-cabecera">
+                <h3 id="gas-title">Nuevo cilindro</h3>
+                <button class="cerrar" onclick="closeGasModal()" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="gas-form" onsubmit="saveGas(event)">
+                <input type="hidden" id="gas-id">
+                <div>
+                    <label class="etiqueta" for="gas-code">Código</label>
+                    <input type="text" id="gas-code" class="campo" required maxlength="40" placeholder="Ej. CIL-001">
+                </div>
+                <div class="fila">
+                    <div>
+                        <label class="etiqueta" for="gas-provider">Proveedor</label>
+                        <select id="gas-provider" class="campo" required></select>
+                    </div>
+                    <div>
+                        <label class="etiqueta" for="gas-category">Categoría</label>
+                        <select id="gas-category" class="campo" required></select>
+                    </div>
+                </div>
+                <div class="fila">
+                    <div>
+                        <label class="etiqueta" for="gas-qty">Cantidad</label>
+                        <input type="number" id="gas-qty" class="campo" required min="0" step="1" value="1">
+                    </div>
+                    <div>
+                        <label class="etiqueta" for="gas-cost">Costo unitario (₡)</label>
+                        <input type="number" id="gas-cost" class="campo" min="0" step="0.01" placeholder="Ej. 45000">
+                    </div>
+                </div>
+                <div class="pie-form">
+                    <button type="button" id="btn-delete-gas" class="btn btn-peligro" onclick="deleteGas()" hidden><i class="fa-solid fa-trash-can"></i> Eliminar</button>
+                    <div class="derecha">
+                        <button type="button" class="btn" onclick="closeGasModal()">Cancelar</button>
+                        <button type="submit" class="btn btn-primario">Guardar</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Traslado de cilindros -->
+    <div id="gt-modal" class="fondo-modal">
+        <div class="tarjeta modal" style="max-width:720px" role="dialog" aria-modal="true" aria-labelledby="gt-title">
+            <div class="modal-cabecera">
+                <h3 id="gt-title"><i class="fa-solid fa-truck" style="color:var(--oro)"></i> Traslado de cilindros</h3>
+                <button class="cerrar" onclick="closeGasTransfer()" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="resumen-import">
+                <div class="fila">
+                    <div>
+                        <label class="etiqueta" for="gt-op">¿A qué operario se traslada?</label>
+                        <select id="gt-op" class="campo" onchange="onGasOp()"></select>
+                    </div>
+                    <div>
+                        <label class="etiqueta" for="gt-date">Fecha del traslado</label>
+                        <input type="date" id="gt-date" class="campo" oninput="renderGasTransfer(); saveGasDraft()" onchange="renderGasTransfer(); saveGasDraft()">
+                    </div>
+                </div>
+                <div id="gt-new-box" hidden>
+                    <label class="etiqueta" for="gt-new-op">Nombre del operario nuevo</label>
+                    <input type="text" id="gt-new-op" class="campo" maxlength="60" placeholder="Ej. Carlos Mora" oninput="saveGasDraft()">
+                </div>
+                <div class="fila">
+                    <div>
+                        <label class="etiqueta" for="gt-transport">Transportado por: <span class="suave">(opcional)</span></label>
+                        <input type="text" id="gt-transport" class="campo" maxlength="80" placeholder="Ej. Luis Mora, camión placa CL-123456" oninput="saveGasDraft()">
+                    </div>
+                    <div>
+                        <label class="etiqueta" for="gt-note">Nota <span class="suave">(opcional)</span></label>
+                        <input type="text" id="gt-note" class="campo" maxlength="200" placeholder="Ej. Para el proyecto Hospital" oninput="saveGasDraft()">
+                    </div>
+                </div>
+                <p class="aviso" id="gt-mode" style="margin:-4px 0 0"></p>
+                <div>
+                    <label class="etiqueta" for="gt-search">Cilindros de la bodega</label>
+                    <input type="text" id="gt-search" class="campo" placeholder="Buscar por código, proveedor o categoría..." oninput="renderGasTransfer()">
+                </div>
+                <div class="lista-picker" id="gt-list" style="max-height:34vh"></div>
+                <div class="carrito">
+                    <div class="carrito-titulo">En este traslado <span class="suave" id="gt-total"></span></div>
+                    <div id="gt-cart"></div>
+                </div>
+                <div class="pie-form">
+                    <button type="button" class="btn btn-peligro" id="gt-clear" onclick="clearGasCart()" hidden><i class="fa-solid fa-trash-can"></i> Eliminar</button>
+                    <div class="derecha">
+                    <button type="button" class="btn" onclick="closeGasTransfer()">Cancelar</button>
+                    <button type="button" class="btn btn-primario" onclick="confirmGasTransfer()"><i class="fa-solid fa-circle-check"></i> Confirmar traslado</button>
+                </div></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Diálogo de avisos y confirmaciones -->
     <div id="dlg" class="fondo-modal">
         <div class="tarjeta modal" role="alertdialog" aria-modal="true" aria-describedby="dlg-msg">
@@ -976,6 +1091,7 @@
             'fa-lock': '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/>',
             'fa-chevron-down': '<path d="M6 9l6 6 6-6"/>',
             'fa-print': '<path d="M6 9V3h12v6M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="7"/>',
+            'fa-gas': '<path d="M9 2h6M10 2v3M14 2v3M8 5h8a2 2 0 012 2v13a2 2 0 01-2 2H8a2 2 0 01-2-2V7a2 2 0 012-2zM6 11h12"/>',
             'fa-file-excel': '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M8.5 12l5 6M13.5 12l-5 6"/>',
             'fa-file-pdf': '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M8 13h1.5a1.5 1.5 0 010 3H8v-3zM8 16v2M13 13v5h1a2 2 0 002-2v-1a2 2 0 00-2-2h-1"/>',
             'fa-filter': '<path d="M22 3H2l8 9.5V19l4 2v-8.5z"/>',
@@ -1505,6 +1621,7 @@
             return {
                 id: t.id || Date.now() + Math.random(),
                 code: (t.code || '').replace(/^METAL-EQUI-(?=\d)/, 'METAL-EQUIP-'),
+                assetCode: t.assetCode || '',
                 category: CATEGORIES.includes(t.category) ? t.category : (t.category ? 'Otro' : 'Herramienta'),
                 name: name,
                 description: t.description || '',
@@ -1670,6 +1787,8 @@
         function saveFolders() {
             writeLS(LS_KEYS.folders, folders);
             writeLS(LS_KEYS.records, records);
+            writeLS(LS_KEYS.gases, gases);
+            writeLS(LS_KEYS.gasTransfers, gasTransfers);
             if (typeof scheduleSync === 'function') scheduleSync();
         }
 
@@ -1678,10 +1797,12 @@
             'all': { title: 'Bodega Principal · Inventario de Herramientas', btn: 'nav-all' },
             'Equipos MARC': { title: 'Bodega Taller MARC · Inventario de Herramientas', btn: 'nav-taller' },
             'Instalaciones': { title: 'Bodega Instalaciones · Inventario de Herramientas', btn: 'nav-inst' },
+            'gases': { title: 'Bodega de Control de Cilindros de Gases', btn: 'nav-gas' },
             'operarios': { title: 'Operarios · Traslados de Equipo', btn: 'nav-op' }
         };
         function goSection(key) {
             if (key === 'operarios') { view = 'operarios'; currentOp = null; }
+            else if (key === 'gases') { view = 'gases'; }
             else { view = 'inventory'; scope = key; }
             const sec = SECTIONS[key];
             document.getElementById('app-title').textContent = sec.title;
@@ -1693,6 +1814,7 @@
             });
             document.getElementById('view-inventory').hidden = view !== 'inventory';
             document.getElementById('view-operarios').hidden = view !== 'operarios';
+            document.getElementById('view-gases').hidden = view !== 'gases';
             document.getElementById('inv-head').hidden = view !== 'inventory';
             try { sessionStorage.setItem('bodega_seccion', key); } catch (e) {}
             renderAll();
@@ -2328,14 +2450,16 @@
 
             encabezado();
             doc.setTextColor(...CARBON); doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-            doc.text('SOLICITUD DE TRASLADO DE HERRAMIENTA', M, y);
+            doc.text(d.gas ? 'SOLICITUD DE TRASLADO DE CILINDROS' : 'SOLICITUD DE TRASLADO DE HERRAMIENTA', M, y);
             doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...GRIS);
             doc.text('N.º ' + numero, W - M, y, { align: 'right' });
             y += 7;
 
             // Datos del traslado
-            const datos = [['Operario', d.operario], ['Fecha', fechaLarga(d.fecha)], ['Carpeta', d.carpeta || '—'],
-                           ['Bodega de origen', BODEGAS[d.origen] || d.origen || '—']];
+            const datos = d.gas
+                ? [['Operario', d.operario], ['Fecha', fechaLarga(d.fecha)], ['Transportado por', d.transporte || '—'], ['Bodega de origen', 'Bodega de Control de Cilindros de Gases']]
+                : [['Operario', d.operario], ['Fecha', fechaLarga(d.fecha)], ['Carpeta', d.carpeta || '—'],
+                   ['Bodega de origen', BODEGAS[d.origen] || d.origen || '—']];
             if (d.nota) datos.push(['Nota', d.nota]);
             const altoDatos = 6 + datos.length * 6.2;
             doc.setFillColor(244, 247, 250); doc.setDrawColor(210, 218, 226); doc.setLineWidth(0.3);
@@ -2349,8 +2473,11 @@
             y += altoDatos + 7;
 
             // Tabla de herramientas
-            const cols = [['N.º de activo', 32, 'left'], ['Herramienta(s)', 54, 'left'], ['Cant.', 12, 'right'], ['Marca', 24, 'left'],
-                          ['Modelo', 23, 'left'], ['Costo unit. (CRC)', 21, 'right'], ['Subtotal (CRC)', 21.9, 'right']];
+            const cols = d.gas
+                ? [['Código', 34, 'left'], ['Proveedor', 46, 'left'], ['Categoría', 37, 'left'], ['Cant.', 14, 'right'],
+                   ['Costo unit. (CRC)', 28, 'right'], ['Subtotal (CRC)', 28.9, 'right']]
+                : [['N.º de activo', 32, 'left'], ['Herramienta(s)', 54, 'left'], ['Cant.', 12, 'right'], ['Marca', 24, 'left'],
+                   ['Modelo', 23, 'left'], ['Costo unit. (CRC)', 21, 'right'], ['Subtotal (CRC)', 21.9, 'right']];
             const fila = (vals, opts = {}) => {
                 const wrapped = vals.map((v, i) => doc.splitTextToSize(String(v ?? ''), cols[i][1] - 3));
                 const alto = Math.max(...wrapped.map(w => w.length)) * 4.1 + 3.6;
@@ -2377,12 +2504,14 @@
                 const cost = Number(t.cost) || 0, sub = cost * it.qty;
                 total += sub; unidades += it.qty;
                 const antes = doc.getNumberOfPages();
-                fila([t.code || '', t.name || '', it.qty, t.brand || '—', t.model || '—', cost ? crc(cost) : '—', cost ? crc(sub) : '—'],
+                fila(d.gas ? [t.code || '', t.provider || '—', t.category || '—', it.qty, cost ? crc(cost) : '—', cost ? crc(sub) : '—']
+                           : [t.code || '', t.name || '', it.qty, t.brand || '—', t.model || '—', cost ? crc(cost) : '—', cost ? crc(sub) : '—'],
                      { fill: k % 2 ? [248, 249, 251] : null });
                 if (doc.getNumberOfPages() !== antes) { /* la fila pasó a otra página */ }
             });
             doc.setFont('helvetica', 'bold'); doc.setFontSize(9.2);
-            fila(['', `Total: ${d.items.length} herramienta(s)`, unidades, '', '', '', total ? crc(total) : '—'], { fill: [232, 244, 250] });
+            fila(d.gas ? ['', `Total: ${d.items.length} cilindro(s)`, '', unidades, '', total ? crc(total) : '—']
+                       : ['', `Total: ${d.items.length} herramienta(s)`, unidades, '', '', '', total ? crc(total) : '—'], { fill: [232, 244, 250] });
             y += 7;
 
             // Políticas de uso
@@ -2403,7 +2532,7 @@
             salto(fuente.length * 3.8 + 2);
             doc.text(fuente, M, y + 1); y += fuente.length * 3.8 + 4;
             doc.setFontSize(8.6); doc.setTextColor(...GRIS);
-            const acepto = doc.splitTextToSize('Con su firma, el operario declara haber recibido las herramientas detalladas en buen estado y acepta las políticas de herramienta aquí descritas.', W - 2 * M);
+            const acepto = doc.splitTextToSize('Con su firma, el operario declara haber recibido ' + (d.gas ? 'los cilindros detallados' : 'las herramientas detalladas') + ' en buen estado y acepta las políticas de herramienta aquí descritas.', W - 2 * M);
             salto(acepto.length * 4 + 24);
             doc.text(acepto, M, y); y += acepto.length * 4 + 12;
 
@@ -2418,7 +2547,7 @@
             doc.text(d.operario, W - M - 6 - fw / 2, y + 10, { align: 'center' });
 
             pie();
-            return { doc, nombre: `Solicitud de traslado ${d.operario} ${d.fecha}.pdf`.replace(/[\\/:*?"<>|]/g, '-') };
+            return { doc, nombre: `Solicitud de traslado${d.gas ? ' de cilindros' : ''} ${d.operario} ${d.fecha}.pdf`.replace(/[\\/:*?"<>|]/g, '-') };
         }
 
         async function openTransferDoc(d, builder = buildTransferPdf) {
@@ -2617,6 +2746,326 @@
             }
             const etiqueta = [d.o.name, d.o.description, d.o.date].filter(Boolean).join(' ');
             return { doc, nombre: `Reporte de operario ${etiqueta}.pdf`.replace(/[\\/:*?"<>|]/g, '-') };
+        }
+
+
+        // =================== Bodega de Control de Cilindros de Gases ===================
+        const GAS_PROVIDERS = ['Gases Industriales', 'SVA Gases', 'Gaspro - Sol y Gas', 'Control de Extintores'];
+        const GAS_TYPES = ['Acetileno', 'Oxígeno', 'Nitrógeno', 'Argón CO2'];
+        let gases = [], gasTransfers = [];
+        let gasTab = 'cilindros', gasCart = [];
+        const gasOut = id => gasTransfers.filter(t => t.deducted && !t.returned)
+            .reduce((s, t) => s + t.items.filter(i => i.gasId === id).reduce((a, i) => a + i.qty, 0), 0);
+        const gasOpts = (list, sel, vacio) => (vacio ? `<option value="">${vacio}</option>` : '') +
+            list.map(v => `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(v)}</option>`).join('');
+
+        function updateGasStats() {
+            const unidades = gases.reduce((s, g) => s + g.quantity, 0);
+            const fuera = gasTransfers.filter(t => t.deducted && !t.returned);
+            document.getElementById('stat-total').textContent = gases.length;
+            document.getElementById('stat-units').textContent = `${unidades} unidades en bodega`;
+            document.getElementById('stat-good').textContent = unidades;
+            document.getElementById('stat-borrowed').textContent = fuera.reduce((s, t) => s + t.items.reduce((a, i) => a + i.qty, 0), 0);
+            document.getElementById('stat-reserved').textContent = '';
+            document.getElementById('stat-maintenance').textContent = fuera.length;
+            document.getElementById('stat-value').textContent = fmtCRC(gases.reduce((s, g) => s + (Number(g.cost) || 0) * g.quantity, 0));
+        }
+
+        function setGasTab(t) { gasTab = t; renderGases(); }
+
+        function renderGases() {
+            const box = document.getElementById('view-gases');
+            if (!box || view !== 'gases') return;
+            const pend = gasTransfers.filter(t => t.deducted && !t.returned).length;
+            // Se conservan los filtros escritos
+            const val = id => (document.getElementById(id) || {}).value || '';
+            const q = val('gas-search'), fp = val('gas-f-prov'), fc = val('gas-f-cat'), qt = val('gas-tr-search'), fe = val('gas-tr-estado');
+            let html = `<div class="sub-tabs" role="tablist">
+                <button class="sub-tab ${gasTab === 'cilindros' ? 'activa' : ''}" onclick="setGasTab('cilindros')" role="tab"><i class="fa-solid fa-gas"></i> Cilindros <span class="insignia">${gases.length}</span></button>
+                <button class="sub-tab ${gasTab === 'traslados' ? 'activa' : ''}" onclick="setGasTab('traslados')" role="tab"><i class="fa-solid fa-truck"></i> Traslados <span class="insignia">${gasTransfers.length}</span></button>
+            </div>`;
+            if (gasTab === 'cilindros') {
+                html += `<div class="gas-barra">
+                    <input type="text" id="gas-search" class="campo" placeholder="Buscar código, proveedor o categoría..." value="${esc(q)}" oninput="renderGasTable()">
+                    <select id="gas-f-prov" class="campo" onchange="renderGasTable()">${gasOpts(GAS_PROVIDERS, fp, 'Todos los proveedores')}</select>
+                    <select id="gas-f-cat" class="campo" onchange="renderGasTable()">${gasOpts(GAS_TYPES, fc, 'Todas las categorías')}</select>
+                    <button class="btn btn-primario" onclick="openGasTransfer()"><i class="fa-solid fa-truck"></i> Traslado de cilindros</button>
+                    <button class="btn" onclick="openGasModal()"><i class="fa-solid fa-plus"></i> Nuevo cilindro</button>
+                </div>
+                <div class="tabla-envoltura"><table style="min-width:760px"><thead><tr>
+                    <th>Código</th><th>Proveedor</th><th>Categoría</th><th style="text-align:center">Cantidad</th>
+                    <th style="text-align:right">Costo unitario</th><th>Acciones</th></tr></thead>
+                    <tbody id="gas-body"></tbody></table></div>
+                <div id="gas-empty" class="vacio" hidden><i class="fa-solid fa-gas"></i><span id="gas-empty-txt"></span></div>
+                <p class="conteo" id="gas-count"></p>`;
+                box.innerHTML = html;
+                renderGasTable();
+            } else {
+                html += `<div class="gas-tr-barra">
+                    <input type="text" id="gas-tr-search" class="campo" placeholder="Buscar operario, código o categoría..." value="${esc(qt)}" oninput="renderGasTrList()">
+                    <select id="gas-tr-estado" class="campo" onchange="renderGasTrList()">
+                        <option value="">Todos los traslados</option>
+                        <option value="pend"${fe === 'pend' ? ' selected' : ''}>Pendientes de devolver (${pend})</option>
+                        <option value="dev"${fe === 'dev' ? ' selected' : ''}>Devueltos</option>
+                        <option value="hist"${fe === 'hist' ? ' selected' : ''}>Históricos</option>
+                    </select>
+                    <button class="btn btn-primario" onclick="openGasTransfer()"><i class="fa-solid fa-truck"></i> Traslado de cilindros</button>
+                </div>
+                <div id="gas-tr-list"></div>`;
+                box.innerHTML = html;
+                renderGasTrList();
+            }
+        }
+
+        function renderGasTable() {
+            const body = document.getElementById('gas-body');
+            if (!body) return;
+            const q = norm(document.getElementById('gas-search').value), fp = document.getElementById('gas-f-prov').value, fc = document.getElementById('gas-f-cat').value;
+            const list = gases.filter(g => (!q || norm([g.code, g.provider, g.category].join(' ')).includes(q))
+                && (!fp || g.provider === fp) && (!fc || g.category === fc))
+                .sort((a, b) => String(a.code).localeCompare(String(b.code), 'es', { numeric: true }));
+            body.innerHTML = list.map(g => {
+                const fuera = gasOut(g.id);
+                return `<tr>
+                    <td class="codigo">${esc(g.code)}</td>
+                    <td>${esc(g.provider)}</td>
+                    <td><span class="chip">${esc(g.category)}</span></td>
+                    <td class="cantidad">${g.quantity}${fuera ? `<span class="sub">${fuera} con operarios</span>` : ''}</td>
+                    <td class="costo">${Number(g.cost) ? fmtCRC(g.cost) : '<span class="suave">—</span>'}</td>
+                    <td><button class="btn-icono" onclick="openGasModal('${g.id}')" title="Editar" aria-label="Editar ${esc(g.code)}"><i class="fa-solid fa-pen"></i></button></td>
+                </tr>`;
+            }).join('');
+            const empty = document.getElementById('gas-empty');
+            empty.hidden = list.length > 0;
+            document.getElementById('gas-empty-txt').textContent = gases.length
+                ? 'Ningún cilindro coincide con la búsqueda.' : 'Todavía no hay cilindros. Usa "Nuevo cilindro" para agregar el primero.';
+            document.getElementById('gas-count').textContent = list.length === gases.length ? `${gases.length} cilindros` : `Mostrando ${list.length} de ${gases.length} cilindros`;
+        }
+
+        function gasEstado(t) {
+            if (t.returned) return `<span class="estado e-devuelto">Devuelto ${esc(fmtDate(t.delivery))}</span>`;
+            if (!t.deducted) return `<span class="estado e-vacio">Histórico${t.delivery ? ' · devuelto ' + esc(fmtDate(t.delivery)) : ''}</span>`;
+            return '<span class="estado e-prestada">Pendiente de devolver</span>';
+        }
+
+        function renderGasTrList() {
+            const box = document.getElementById('gas-tr-list');
+            if (!box) return;
+            const q = norm(document.getElementById('gas-tr-search').value), fe = document.getElementById('gas-tr-estado').value;
+            const list = gasTransfers.filter(t => (!q || norm([t.operator, t.transport, t.note, ...t.items.map(i => i.code + ' ' + i.category + ' ' + i.provider)].join(' ')).includes(q))
+                && (!fe || (fe === 'pend' ? t.deducted && !t.returned : fe === 'dev' ? t.returned : !t.deducted)))
+                .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.at || '').localeCompare(a.at || ''));
+            if (!list.length) {
+                box.innerHTML = `<div class="vacio"><i class="fa-solid fa-truck"></i>${gasTransfers.length ? 'Ningún traslado coincide con la búsqueda.' : 'Todavía no hay traslados de cilindros. Usa "Traslado de cilindros".'}</div>`;
+                return;
+            }
+            box.innerHTML = `<div class="tabla-envoltura"><table style="min-width:1060px"><thead><tr>
+                <th>Fecha</th><th>Operario</th><th>Cilindros</th><th style="text-align:center">Cant.</th><th style="text-align:right">Valor</th>
+                <th>Transportado por</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${list.map(t => {
+                    const und = t.items.reduce((s, i) => s + i.qty, 0);
+                    const valor = t.items.reduce((s, i) => s + (Number(i.cost) || 0) * i.qty, 0);
+                    return `<tr>
+                        <td class="nowrap">${esc(fmtDate(t.date))}</td>
+                        <td class="nombre">${esc(t.operator)}${t.note ? `<span class="nota-registro">${esc(t.note)}</span>` : ''}</td>
+                        <td><div class="gas-items">${t.items.map(i => `<span><span class="codigo">${esc(i.code)}</span> ${esc(i.category)} · ${esc(i.provider)} <b>× ${i.qty}</b></span>`).join('')}</div></td>
+                        <td class="cantidad">${und}</td>
+                        <td class="costo nowrap">${valor ? fmtCRC(valor) : '<span class="suave">—</span>'}</td>
+                        <td>${t.transport ? esc(t.transport) : '<span class="suave">—</span>'}</td>
+                        <td>${gasEstado(t)}</td>
+                        <td class="nowrap">
+                            <button class="btn btn-mini" onclick="gasTransferDoc('${t.id}')" title="Ver documento"><i class="fa-solid fa-file-pdf"></i> Documento</button>
+                            ${t.returned || t.delivery ? '' : `<button class="btn btn-mini" onclick="returnGasTransfer('${t.id}')" title="Registrar devolución"><i class="fa-solid fa-rotate-left"></i> Devolver</button>`}
+                            <button class="btn btn-mini" onclick="deleteGasTransfer('${t.id}')" title="Eliminar traslado"><i class="fa-solid fa-trash-can"></i></button>
+                        </td></tr>`;
+                }).join('')}</tbody></table></div>`;
+        }
+
+        // ----- Cilindros: agregar / editar / eliminar -----
+        function nextGasCode() {
+            const n = gases.reduce((m, g) => { const k = String(g.code).match(/^CIL-(\d+)$/i); return k ? Math.max(m, +k[1]) : m; }, 0);
+            return 'CIL-' + String(n + 1).padStart(3, '0');
+        }
+        function openGasModal(id) {
+            const g = id ? gases.find(x => x.id === id) : null;
+            document.getElementById('gas-form').reset();
+            document.getElementById('gas-id').value = g ? g.id : '';
+            document.getElementById('gas-code').value = g ? g.code : nextGasCode();
+            document.getElementById('gas-provider').innerHTML = gasOpts(GAS_PROVIDERS, g && g.provider, g ? '' : 'Selecciona el proveedor');
+            document.getElementById('gas-category').innerHTML = gasOpts(GAS_TYPES, g && g.category, g ? '' : 'Selecciona la categoría');
+            if (!g) { document.getElementById('gas-provider').options[0].disabled = true; document.getElementById('gas-category').options[0].disabled = true; }
+            document.getElementById('gas-qty').value = g ? g.quantity : 1;
+            document.getElementById('gas-cost').value = g && g.cost != null ? g.cost : '';
+            document.getElementById('btn-delete-gas').hidden = !g;
+            document.getElementById('gas-title').textContent = g ? `Editar ${g.code}` : 'Nuevo cilindro';
+            showModal('gas-modal');
+            document.getElementById('gas-code').focus();
+        }
+        function closeGasModal() { hideModal('gas-modal'); }
+        async function saveGas(e) {
+            e.preventDefault();
+            const id = document.getElementById('gas-id').value;
+            const code = document.getElementById('gas-code').value.trim().toUpperCase();
+            if (gases.some(g => g.id !== id && norm(g.code) === norm(code))) { await uiAlert(`Ya existe un cilindro con el código ${code}.`); return; }
+            const costRaw = document.getElementById('gas-cost').value;
+            const data = {
+                code, provider: document.getElementById('gas-provider').value, category: document.getElementById('gas-category').value,
+                quantity: Math.max(0, parseInt(document.getElementById('gas-qty').value, 10) || 0),
+                cost: costRaw === '' ? null : Number(costRaw)
+            };
+            const g = id && gases.find(x => x.id === id);
+            if (g) Object.assign(g, data); else gases.push({ id: 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ...data });
+            closeGasModal();
+            saveAndRender();
+        }
+        async function deleteGas() {
+            const id = document.getElementById('gas-id').value, g = gases.find(x => x.id === id);
+            if (!g) return;
+            const fuera = gasOut(id);
+            if (!(await uiConfirm(`¿Eliminar el cilindro ${g.code} (${g.category} · ${g.provider})?${fuera ? `\nOjo: tiene ${fuera} unidades con operarios. Los traslados se conservan.` : ''}`))) return;
+            gases = gases.filter(x => x.id !== id);
+            closeGasModal();
+            saveAndRender();
+        }
+
+        // ----- Traslado de cilindros -----
+        const GAS_DRAFT = 'bodega_borrador_cilindros';
+        const gasHist = () => (document.getElementById('gt-date').value || todayStr()) < todayStr();
+        function gasOperatorNames() {
+            const set = new Set(operators().map(o => o.name));
+            gasTransfers.forEach(t => t.operator && set.add(t.operator));
+            return [...set].sort((a, b) => a.localeCompare(b, 'es'));
+        }
+        function saveGasDraft() {
+            const d = { op: document.getElementById('gt-op').value, nuevo: document.getElementById('gt-new-op').value, date: document.getElementById('gt-date').value,
+                        transport: document.getElementById('gt-transport').value, note: document.getElementById('gt-note').value, cart: gasCart };
+            try { if (!d.cart.length && !d.note && !d.transport && !d.nuevo) localStorage.removeItem(GAS_DRAFT); else localStorage.setItem(GAS_DRAFT, JSON.stringify(d)); } catch (e) {}
+        }
+        function openGasTransfer() {
+            if (!gases.length) { uiAlert('Primero agrega cilindros a la bodega con "Nuevo cilindro".'); return; }
+            let d = null;
+            try { d = JSON.parse(localStorage.getItem(GAS_DRAFT) || 'null'); } catch (e) {}
+            const names = gasOperatorNames();
+            document.getElementById('gt-op').innerHTML = '<option value="" disabled selected>Selecciona el operario</option>' +
+                names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('') + '<option value="__nuevo">+ Añadir operario nuevo</option>';
+            document.getElementById('gt-op').value = d && (names.includes(d.op) || d.op === '__nuevo') ? d.op : '';
+            document.getElementById('gt-new-op').value = d ? d.nuevo || '' : '';
+            document.getElementById('gt-date').value = d && d.date ? d.date : todayStr();
+            document.getElementById('gt-transport').value = d ? d.transport || '' : '';
+            document.getElementById('gt-note').value = d ? d.note || '' : '';
+            document.getElementById('gt-search').value = '';
+            gasCart = d ? (d.cart || []).filter(c => gases.some(g => g.id === c.gasId)) : [];
+            onGasOp(true);
+            showModal('gt-modal');
+        }
+        function closeGasTransfer() { hideModal('gt-modal'); }
+        function onGasOp(sinGuardar) {
+            document.getElementById('gt-new-box').hidden = document.getElementById('gt-op').value !== '__nuevo';
+            if (sinGuardar !== true) saveGasDraft();
+            renderGasTransfer();
+        }
+        function renderGasTransfer() {
+            const hist = gasHist();
+            const mode = document.getElementById('gt-mode');
+            mode.className = 'aviso' + (hist ? ' hist' : '');
+            mode.textContent = hist
+                ? 'Fecha anterior a hoy: es un registro histórico. El inventario de cilindros no cambia y puedes poner la cantidad que quieras.'
+                : 'Fecha de hoy o futura: los cilindros se rebajan de la bodega. La devolución se registra después en la pestaña Traslados.';
+            const q = norm(document.getElementById('gt-search').value);
+            const list = gases.filter(g => !q || norm([g.code, g.provider, g.category].join(' ')).includes(q))
+                .sort((a, b) => String(a.code).localeCompare(String(b.code), 'es', { numeric: true }));
+            document.getElementById('gt-list').innerHTML = list.map(g => {
+                const ya = (gasCart.find(c => c.gasId === g.id) || {}).qty || 0;
+                const libre = g.quantity - ya, agotado = !hist && libre < 1;
+                return `<div class="fila-picker ${agotado ? 'agotada' : ''} ${ya ? 'ya-agregada' : ''}">
+                    <span class="gas-icono"><i class="fa-solid fa-gas"></i></span>
+                    <div><span class="codigo">${esc(g.code)}</span>
+                        ${ya ? `<span class="marca-ya"><i class="fa-solid fa-circle-check"></i> Ya agregado: ${ya}</span>` : ''}
+                        <br><strong>${esc(g.category)}</strong> <span class="suave">· ${esc(g.provider)}</span>
+                        <span class="sub">${hist ? `En bodega: ${g.quantity}` : `Disponibles: ${libre}`}${Number(g.cost) ? ' · ' + fmtCRC(g.cost) : ''}</span></div>
+                    <input type="number" class="campo" id="gt-q-${g.id}" min="1" ${hist ? '' : `max="${Math.max(libre, 1)}"`} value="1" ${agotado ? 'disabled' : ''} aria-label="Cantidad">
+                    <button type="button" class="btn btn-primario" onclick="addGasToCart('${g.id}')" ${agotado ? 'disabled' : ''}>${agotado ? 'Agotado' : ya ? 'Sumar' : 'Agregar'}</button>
+                </div>`;
+            }).join('') || '<p class="conteo">No hay cilindros con esa búsqueda.</p>';
+            document.getElementById('gt-cart').innerHTML = gasCart.length ? gasCart.map(c => {
+                const g = gases.find(x => x.id === c.gasId);
+                return `<div class="item-carrito"><span><span class="codigo">${esc(g.code)}</span> ${esc(g.category)} · ${esc(g.provider)}</span>
+                    <span class="nowrap"><b>${c.qty}</b> <button type="button" class="cerrar" style="font-size:15px" onclick="removeGasFromCart('${c.gasId}')" aria-label="Quitar"><i class="fa-solid fa-xmark"></i></button></span></div>`;
+            }).join('') : '<p class="conteo" style="margin:0">Todavía no agregaste cilindros.</p>';
+            document.getElementById('gt-total').textContent = gasCart.length ? `${gasCart.length} cilindros · ${gasCart.reduce((s, c) => s + c.qty, 0)} unidades` : '';
+            document.getElementById('gt-clear').hidden = !gasCart.length;
+        }
+        async function addGasToCart(id) {
+            const g = gases.find(x => x.id === id);
+            const qty = parseInt(document.getElementById('gt-q-' + id).value, 10);
+            const ya = (gasCart.find(c => c.gasId === id) || {}).qty || 0;
+            if (!(qty >= 1)) { await uiAlert('Escribe una cantidad de 1 en adelante.'); return; }
+            if (!gasHist() && qty + ya > g.quantity) { await uiAlert(`Solo hay ${g.quantity - ya} disponibles de ${g.code} (${g.category}).`); return; }
+            const item = gasCart.find(c => c.gasId === id);
+            if (item) item.qty += qty; else gasCart.push({ gasId: id, qty });
+            saveGasDraft(); renderGasTransfer();
+        }
+        function removeGasFromCart(id) { gasCart = gasCart.filter(c => c.gasId !== id); saveGasDraft(); renderGasTransfer(); }
+        async function clearGasCart() {
+            if (!gasCart.length || !(await uiConfirm(`¿Eliminar los ${gasCart.length} cilindros agregados a este traslado?`))) return;
+            gasCart = []; saveGasDraft(); renderGasTransfer();
+        }
+        async function confirmGasTransfer() {
+            const sel = document.getElementById('gt-op').value;
+            const operator = (sel === '__nuevo' ? document.getElementById('gt-new-op').value : sel).trim().toUpperCase();
+            const date = document.getElementById('gt-date').value;
+            if (!operator) { await uiAlert(sel === '__nuevo' ? 'Escribe el nombre del operario nuevo.' : 'Elige a qué operario se trasladan los cilindros.'); return; }
+            if (!date) { await uiAlert('Elige la fecha del traslado.'); return; }
+            if (!gasCart.length) { await uiAlert('Agrega al menos un cilindro al traslado.'); return; }
+            const deducted = date >= todayStr();
+            if (deducted) {
+                const falta = gasCart.find(c => { const g = gases.find(x => x.id === c.gasId); return !g || c.qty > g.quantity; });
+                if (falta) { const g = gases.find(x => x.id === falta.gasId); await uiAlert(`No hay suficientes unidades de ${g ? g.code : 'un cilindro'}.`); return; }
+            }
+            const t = {
+                id: 'gt' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), operator, date,
+                transport: document.getElementById('gt-transport').value.trim().toUpperCase(),
+                note: document.getElementById('gt-note').value.trim().toUpperCase(),
+                items: gasCart.map(c => { const g = gases.find(x => x.id === c.gasId); return { gasId: g.id, code: g.code, provider: g.provider, category: g.category, qty: c.qty, cost: g.cost ?? null }; }),
+                deducted, returned: false, delivery: '', at: new Date().toISOString()
+            };
+            if (deducted) t.items.forEach(i => { const g = gases.find(x => x.id === i.gasId); g.quantity -= i.qty; });
+            gasTransfers.push(t);
+            gasCart = [];
+            try { localStorage.removeItem(GAS_DRAFT); } catch (e) {}
+            closeGasTransfer();
+            gasTab = 'traslados';
+            saveAndRender();
+            gasTransferDoc(t.id);
+        }
+        function gasTransferDoc(id) {
+            const t = gasTransfers.find(x => x.id === id);
+            if (!t) return;
+            openTransferDoc({ gas: true, operario: t.operator, fecha: t.date, transporte: t.transport, nota: t.note, numero: t.id,
+                items: t.items.map(i => ({ qty: i.qty, tool: { code: i.code, provider: i.provider, category: i.category, cost: i.cost } })),
+                aviso: 'El traslado de cilindros ya quedó guardado en la pestaña Traslados.' });
+        }
+        async function returnGasTransfer(id) {
+            const t = gasTransfers.find(x => x.id === id);
+            if (!t) return;
+            const und = t.items.reduce((s, i) => s + i.qty, 0);
+            const v = await uiDialog({ message: `Fecha de devolución de los ${und} cilindro(s) de ${t.operator}.${t.deducted ? '\nLas unidades vuelven a la bodega.' : ''}`,
+                                       input: todayStr(), inputType: 'date', okText: 'Registrar devolución' });
+            if (!v) return;
+            t.delivery = v;
+            if (t.deducted && !t.returned) {
+                t.items.forEach(i => { const g = gases.find(x => x.id === i.gasId); if (g) g.quantity += i.qty; });
+                t.returned = true;
+            }
+            saveAndRender();
+        }
+        async function deleteGasTransfer(id) {
+            const t = gasTransfers.find(x => x.id === id);
+            if (!t) return;
+            const vuelve = t.deducted && !t.returned;
+            if (!(await uiConfirm(`¿Eliminar el traslado de ${t.operator} del ${fmtDate(t.date)}?${vuelve ? '\nLos cilindros vuelven a la bodega.' : ''}`))) return;
+            if (vuelve) t.items.forEach(i => { const g = gases.find(x => x.id === i.gasId); if (g) g.quantity += i.qty; });
+            gasTransfers = gasTransfers.filter(x => x.id !== id);
+            saveAndRender();
         }
 
         // ----- Exportar reporte: PDF o Excel -----
@@ -2997,7 +3446,8 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
         // ----- Inventario en mayúsculas mientras se escribe -----
         // Campos que siempre se escriben en mayúscula (inventario y registros)
         const UPPER_FIELDS = '#tool-form input[type="text"]:not(#tool-photo-url), #tool-form textarea, #search-input, ' +
-            '#op-name, #op-description, #op-transport, #op-search, .op-buscar, #tr-search, #tr-new-op, #tr-note, #dlg-input:not([type="date"])';
+            '#op-name, #op-description, #op-transport, #op-search, .op-buscar, #tr-search, #tr-new-op, #tr-note, #dlg-input:not([type="date"]), ' +
+            '#gas-code, #gas-search, #gt-new-op, #gt-transport, #gt-note, #gt-search, #gas-tr-search';
         function upperOnInput(e) {
             const el = e.target;
             if (!el.matches(UPPER_FIELDS)) return;
@@ -3014,7 +3464,8 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
         // Todo el inventario, las carpetas y los registros se guardan en localStorage.
         // Las fotos que suben los usuarios se guardan aparte (IndexedDB del mismo navegador) porque
         // localStorage solo admite unos 5 MB y con pocas fotos se llenaría.
-        const LS_KEYS = { tools: 'bodega_tools_v4', folders: 'bodega_folders_v4', records: 'bodega_records_v4', seed: 'bodega_seed_version' };
+        const LS_KEYS = { tools: 'bodega_tools_v4', folders: 'bodega_folders_v4', records: 'bodega_records_v4', seed: 'bodega_seed_version',
+                          gases: 'bodega_gases_v1', gasTransfers: 'bodega_gas_traslados_v1' };
         const PHOTO_REF = '@foto';
         const savedPhotos = new Map();
         let photosInline = false, warnedFull = false;
@@ -3060,6 +3511,7 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
 
         function renderAll() {
             renderRecords();
+            renderGases();
             filterTools();
             updateStats();
         }
@@ -3081,6 +3533,7 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
                     <td><img class="foto" src="${esc(tool.photo || DEFAULT_IMAGE)}" alt="${esc(tool.name)}"
                              onclick="openImageModal(${tool.id})" onerror="this.onerror=null;this.src=DEFAULT_IMAGE"></td>
                     <td class="codigo">${esc(tool.code)}</td>
+                    <td class="nowrap">${tool.assetCode ? esc(tool.assetCode) : '<span class="suave">—</span>'}</td>
                     <td><span class="chip">${esc(tool.category)}</span></td>
                     <td class="nombre">${esc(tool.name)}${tool.description ? `<span class="desc" title="${esc(tool.description)}">${esc(tool.description)}</span>` : ''}</td>
                     <td>${tool.brand ? esc(tool.brand) : '<span class="suave">—</span>'}${tool.model ? `<span class="modelo">${esc(tool.model)}</span>` : ''}</td>
@@ -3109,7 +3562,14 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
             return `<span class="estado ${cls}">${esc(label)}</span>`;
         }
 
+        const STAT_LABELS = {
+            inv: ['Total activos', 'Buenas / Nuevas', 'Prestadas / En uso', 'Malas / Mantenimiento / Dañadas'],
+            gas: ['Cilindros registrados', 'Unidades en bodega', 'Trasladados (con operarios)', 'Traslados pendientes de devolver']
+        };
         function updateStats() {
+            const lbl = STAT_LABELS[view === 'gases' ? 'gas' : 'inv'];
+            ['lbl-total', 'lbl-good', 'lbl-borrowed', 'lbl-maint'].forEach((id, i) => document.getElementById(id).textContent = lbl[i]);
+            if (view === 'gases') { updateGasStats(); return; }
             const tools = scopedTools(); // las tarjetas muestran la bodega elegida
             const ids = new Set(tools.map(t => t.id));
             document.getElementById('stat-total').textContent = tools.length;
@@ -3134,7 +3594,7 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
             const photo = document.getElementById('filter-photo').value;
 
             renderTools(scopedTools().filter(tool => {
-                const haystack = [tool.code, tool.name, tool.description, tool.brand, tool.model, tool.company, formatLocation(tool), tool.responsible].join(' ').toLowerCase();
+                const haystack = [tool.code, tool.assetCode, tool.name, tool.description, tool.brand, tool.model, tool.company, formatLocation(tool), tool.responsible].join(' ').toLowerCase();
                 return haystack.includes(query)
                     && (category === '' || tool.category === category)
                     && (status === '' || (status === '__none' ? !tool.status : tool.status === status))
@@ -3176,7 +3636,7 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
             document.getElementById('btn-menu').setAttribute('aria-expanded', 'false');
         }
         document.addEventListener('click', e => { if (!e.target.closest('.acciones-encabezado')) closeMenu(); });
-        document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.getElementById('pin-screen').hidden) { closeMenu(); closeModal(); closeImageModal(); closeOpModal(); closeTransfer(); closeImportModal(); closeDoc(); } });
+        document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.getElementById('pin-screen').hidden) { closeMenu(); closeModal(); closeImageModal(); closeOpModal(); closeTransfer(); closeImportModal(); closeDoc(); closeGasModal(); closeGasTransfer(); } });
 
         // Fotos
         function handleFileSelect(event) {
@@ -3300,6 +3760,7 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
                 id: id ? Number(id) : Date.now(),
                 code: CODE_PREFIX[document.getElementById('tool-category').value] + document.getElementById('tool-number').value.padStart(3, '0'),
                 category: document.getElementById('tool-category').value,
+                assetCode: document.getElementById('tool-asset').value.trim().toUpperCase(),
                 name: document.getElementById('tool-name').value.trim().toUpperCase(),
                 description: document.getElementById('tool-description').value.trim().toUpperCase(),
                 brand: document.getElementById('tool-brand').value.trim().toUpperCase(),
@@ -3360,6 +3821,7 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
             updateCodePrefix();
             showCodeHint(true);
             document.getElementById('tool-name').value = tool.name;
+            document.getElementById('tool-asset').value = tool.assetCode || '';
             document.getElementById('tool-brand').value = tool.brand || '';
             document.getElementById('dup-box').hidden = true;
             document.getElementById('tool-model').value = tool.model || '';
@@ -3395,7 +3857,7 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
 
         // Exportar / importar
         async function exportJSON() {
-            const json = JSON.stringify({ tools, folders, records }, null, 2);
+            const json = JSON.stringify({ tools, folders, records, gases, gasTransfers }, null, 2);
             const filename = `inventario_bodega_${new Date().toISOString().slice(0, 10)}.json`;
             const blob = new Blob([json], { type: 'application/json' });
             const a = document.createElement('a');
@@ -3728,9 +4190,9 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
 
         const net = {
             on: !!API_BASE, started: false, lastError: '', ready: false, since: 0, pushing: false, again: false, timer: null, pollTimer: null,
-            last: { tools: new Map(), folders: new Map(), records: new Map() } // lo que tiene el servidor, por documento
+            last: { tools: new Map(), folders: new Map(), records: new Map(), gases: new Map(), gasTransfers: new Map() } // lo que tiene el servidor, por documento
         };
-        const SYNC_COLS = ['tools', 'folders', 'records'];
+        const SYNC_COLS = ['tools', 'folders', 'records', 'gases', 'gasTransfers'];
         const stable = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x))
             ? Object.keys(x).sort().reduce((o, key) => (o[key] = x[key], o), {}) : x);
         const apiPin = () => { try { return sessionStorage.getItem('bodega_pin') || PIN; } catch (e) { return PIN; } };
@@ -3777,7 +4239,7 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
             uiAlert(`Servidor: ${API_BASE}\nResultado: ${result}${net.lastError && !/correcta/.test(result) ? '\nÚltimo error: ' + net.lastError : ''}${tips.length ? '\n\n' + tips.join('\n') : ''}`);
         }
 
-        const localDocs = () => ({ tools: tools.map(slimTool), folders, records });
+        const localDocs = () => ({ tools: tools.map(slimTool), folders, records, gases, gasTransfers });
 
         // Diferencias entre lo que hay en este equipo y lo último que se sabe del servidor
         function localDiff() {
@@ -3835,7 +4297,7 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
                 if (data === null) { if (i >= 0) tools.splice(i, 1); }
                 else { const t = normalizeTool(data); if (i >= 0) tools[i] = t; else tools.push(t); }
             } else {
-                const list = col === 'folders' ? folders : records;
+                const list = { folders, records, gases, gasTransfers }[col];
                 const i = list.findIndex(x => String(x.id) === id);
                 if (data === null) { if (i >= 0) list.splice(i, 1); }
                 else if (i >= 0) list[i] = data; else list.push(data);
@@ -3860,7 +4322,11 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
                         await pushChanges(true);
                     } else {
                         // El servidor manda: se reemplaza lo de este equipo por lo compartido
+                        // Cilindros: si el servidor todavía no tiene ninguno (Worker sin actualizar o primera vez), se conservan los de este equipo
+                        const delServidor = new Set(data.changes.filter(c => !c.deleted).map(c => c.col));
+                        const guardarGas = !delServidor.has('gases') && !delServidor.has('gasTransfers') && (gases.length || gasTransfers.length);
                         tools = []; folders = []; records = [];
+                        if (!guardarGas) { gases = []; gasTransfers = []; }
                         SYNC_COLS.forEach(c => net.last[c].clear());
                         data.changes.forEach(c => {
                             if (c.deleted || !SYNC_COLS.includes(c.col)) return; // solo herramientas, operarios y traslados
@@ -3870,7 +4336,7 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
                         folders = cleanFolders(folders);
                         sortTools();
                         net.ready = true;
-                        if (renamePresente()) saveAndRender(); // también se corrige en el servidor
+                        if (renamePresente() || guardarGas) saveAndRender(); // también se sube/corrige en el servidor
                         else { saveLocalOnly(); renderAll(); }
                     }
                 } else {
@@ -3896,7 +4362,8 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
             }
         }
 
-        function saveLocalOnly() { saveTools(); writeLS(LS_KEYS.folders, folders); writeLS(LS_KEYS.records, records); }
+        function saveLocalOnly() { saveTools(); writeLS(LS_KEYS.folders, folders); writeLS(LS_KEYS.records, records);
+            writeLS(LS_KEYS.gases, gases); writeLS(LS_KEYS.gasTransfers, gasTransfers); }
 
         async function startSync() {
             if (!net.on || net.started) return;
@@ -3985,6 +4452,8 @@ ${img(1, LOGO_METAL, 0, 4, 66)}${img(2, LOGO_AIRE, 10, 40, 88)}
                 folders = cleanFolders(SEED_FOLDERS);
                 records = SEED_RECORDS.map(r => ({ ...r }));
             }
+            gases = readLS(LS_KEYS.gases) || [];
+            gasTransfers = readLS(LS_KEYS.gasTransfers) || [];
             migrateFolders();
             renamePresente();
             try {
